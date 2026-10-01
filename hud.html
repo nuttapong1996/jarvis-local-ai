@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<!-- HUD ของน้องจาง: วงแหวนแบบ J.A.R.V.I.S ขยับตามเสียง (jarvis.py เรียก hud.update({...}) ทุก ~50 ms) -->
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --c: #36e3ff; }
+  html, body { margin: 0; background: transparent; overflow: hidden; user-select: none; -webkit-user-select: none;
+               font-family: "Avenir Next", "Helvetica Neue", "Thonburi", sans-serif; }
+  #wrap { width: 380px; display: flex; flex-direction: column; align-items: center; }
+  canvas { width: 360px; height: 360px; }
+  #lines { width: 340px; margin-top: -6px; padding: 8px 12px; border-radius: 12px;
+           background: rgba(4, 16, 28, .62); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
+           box-shadow: 0 0 18px color-mix(in srgb, var(--c) 25%, transparent); transition: opacity .4s; }
+  .row { font-size: 13px; line-height: 1.45; color: #cfefff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .who { color: var(--c); font-weight: 600; letter-spacing: .06em; margin-right: 6px; }
+  #lines.empty { opacity: 0; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="720" height="720"></canvas>
+  <div id="lines" class="empty">
+    <div class="row"><span class="who">คุณ</span><span id="heard"></span></div>
+    <div class="row"><span class="who">น้องจาง</span><span id="reply"></span></div>
+  </div>
+</div>
+<script>
+const cv = document.getElementById("c"), g = cv.getContext("2d");
+const S = 720, C = S / 2;                        // วาดที่ 2x ให้คมบนจอ Retina
+const COLORS = { listen: "#36e3ff", speak: "#8fc8ff", think: "#ffb13b", web: "#4dffa6", control: "#c77dff", off: "#6f8190" };
+const LABELS = { listen: "LISTENING", speak: "SPEAKING", think: "THINKING", web: "BROWSING", control: "CONTROLLING", off: "OFFLINE" };
+let st = { state: "listen", level: 0, heard: "", reply: "", pinned: true };
+let level = 0, t0 = performance.now(), bars = new Float32Array(72);
+
+window.hud = {
+  update(s) {
+    st = Object.assign(st, s);
+    document.documentElement.style.setProperty("--c", COLORS[st.state] || COLORS.listen);
+    document.getElementById("heard").textContent = st.heard || "";
+    document.getElementById("reply").textContent = st.reply || "";
+    document.getElementById("lines").classList.toggle("empty", !st.heard && !st.reply);
+  }
+};
+
+function arc(r, a0, a1, w, color, alpha = 1) {
+  g.beginPath(); g.arc(C, C, r, a0, a1); g.lineWidth = w; g.strokeStyle = color; g.globalAlpha = alpha; g.stroke();
+}
+
+function frame(now) {
+  const t = (now - t0) / 1000, col = COLORS[st.state] || COLORS.listen, off = st.state === "off";
+  level += ((off ? 0 : Math.min(1, st.level * 6)) - level) * 0.25;          // ความดังแบบนุ่มๆ
+  g.clearRect(0, 0, S, S);
+
+  // พื้นหลังวงกลมโปร่งแสง
+  const bg = g.createRadialGradient(C, C, 40, C, C, 350);
+  bg.addColorStop(0, "rgba(6,30,48,.78)"); bg.addColorStop(.72, "rgba(3,14,24,.55)"); bg.addColorStop(1, "rgba(0,0,0,0)");
+  g.globalAlpha = 1; g.fillStyle = bg; g.beginPath(); g.arc(C, C, 350, 0, Math.PI * 2); g.fill();
+
+  g.save(); g.globalCompositeOperation = "lighter"; g.shadowColor = col; g.shadowBlur = 18; g.lineCap = "butt";
+  const spin = off ? 0.15 : 1 + level * 2;
+
+  // 1) วงนอก: ขีดสเกล 120 ขีด หมุนช้าๆ
+  g.save(); g.translate(C, C); g.rotate(t * 0.08 * spin);
+  for (let i = 0; i < 120; i++) {
+    const long = i % 10 === 0, r1 = 318, r2 = long ? 298 : 308;
+    g.rotate(Math.PI * 2 / 120); g.beginPath(); g.moveTo(r1, 0); g.lineTo(r2, 0);
+    g.lineWidth = long ? 3 : 1.4; g.strokeStyle = col; g.globalAlpha = long ? .9 : .45; g.stroke();
+  }
+  g.restore();
+  arc(328, 0, Math.PI * 2, 1.5, col, .35);
+
+  // 2) วงส่วนโค้งหนา หมุนสวนทาง
+  const r2 = 276, a = -t * 0.35 * spin;
+  [[0, 1.1], [1.5, 2.2], [2.6, 3.9], [4.3, 5.0], [5.3, 6.0]].forEach(([s, e], i) =>
+    arc(r2, a + s, a + e, i % 2 ? 7 : 12, col, .75));
+
+  // 3) วงเส้นประบาง หมุนเร็ว
+  g.setLineDash([4, 10]); arc(250, t * 0.9 * spin, t * 0.9 * spin + Math.PI * 2, 2, col, .6); g.setLineDash([]);
+
+  // 4) กวาดเรดาร์ตอนคิด/ท่องเว็บ
+  if (st.state === "think" || st.state === "web" || st.state === "control") {
+    const sw = t * 2.4;
+    const grad = g.createConicGradient ? g.createConicGradient(sw, C, C) : null;
+    if (grad) {
+      grad.addColorStop(0, col + "aa"); grad.addColorStop(.12, col + "00"); grad.addColorStop(1, col + "00");
+      g.globalAlpha = .55; g.fillStyle = grad; g.beginPath(); g.arc(C, C, 240, 0, Math.PI * 2); g.fill();
+    }
+  }
+
+  // 5) แท่งคลื่นเสียงรอบแกนกลาง
+  const n = bars.length, base = 150;
+  for (let i = 0; i < n; i++) {
+    const target = level * (0.35 + 0.65 * Math.abs(Math.sin(i * 1.7 + t * 5.3) * Math.cos(i * .63 - t * 3.1)))
+                 + 0.03 + (off ? 0 : 0.02 * Math.sin(t * 2 + i));
+    bars[i] += (target - bars[i]) * 0.3;
+    const ang = i / n * Math.PI * 2 - Math.PI / 2, len = 10 + bars[i] * 80;
+    g.beginPath(); g.moveTo(C + Math.cos(ang) * base, C + Math.sin(ang) * base);
+    g.lineTo(C + Math.cos(ang) * (base + len), C + Math.sin(ang) * (base + len));
+    g.lineWidth = 5; g.strokeStyle = col; g.globalAlpha = .55 + bars[i] * .45; g.stroke();
+  }
+
+  // 6) วงแกนกลาง + แกนเรืองแสงเต้นตามเสียง
+  arc(138, 0, Math.PI * 2, 3, col, .9);
+  arc(120, -t * 1.4, -t * 1.4 + Math.PI * 1.3, 4, col, .8);
+  const coreR = 70 + level * 26 + Math.sin(t * 3) * 2;
+  const core = g.createRadialGradient(C, C, 0, C, C, coreR);
+  core.addColorStop(0, "rgba(255,255,255,.95)"); core.addColorStop(.25, col); core.addColorStop(1, col + "00");
+  g.globalAlpha = off ? .35 : .9; g.fillStyle = core; g.beginPath(); g.arc(C, C, coreR, 0, Math.PI * 2); g.fill();
+  g.restore();
+
+  // 7) ตัวหนังสือ
+  g.globalAlpha = 1; g.textAlign = "center"; g.fillStyle = "#eafaff";
+  g.shadowColor = col; g.shadowBlur = 14;
+  g.font = "600 30px 'Avenir Next Condensed', 'Helvetica Neue', sans-serif";
+  g.fillText("J.A.R.V.I.S", C, C - 206);
+  g.font = "600 24px 'Avenir Next', sans-serif"; g.fillStyle = col;
+  g.fillText(LABELS[st.state] || "", C, C + 222);
+  g.font = "500 20px 'Avenir Next', sans-serif"; g.fillStyle = "#bfe9ff";
+  const d = new Date(); g.fillText(d.toTimeString().slice(0, 8) + (st.pinned ? "  ·  📌" : ""), C, C + 252);
+  g.shadowBlur = 0;
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

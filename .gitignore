@@ -1,0 +1,24 @@
+# ความลับและ virtualenv
+.env
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+.browser-profile/
+recordings/
+.hud.json
+
+# แอปที่ build จาก macos/build_app.sh และ log ของแอป
+Jarvis.app/
+logs/
+# ตัวถอดเสียงของ Apple ที่คอมไพล์จาก macos/nongjang_stt.swift
+bin/
+# เสียงประโยคสำเร็จรูปที่สังเคราะห์ไว้ล่วงหน้า
+.tts-cache/
+# log ของ LLM ในเครื่อง (อาจมีบทสนทนา) และ log อื่นๆ
+.local-llm.log
+*.log

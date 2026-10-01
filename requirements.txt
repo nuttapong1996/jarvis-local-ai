@@ -1,0 +1,31 @@
+# ── แกนหลัก ─────────────────────────────────────────────
+numpy
+requests
+python-dotenv
+sounddevice>=0.5
+typesafe-sdk>=0.7.2,<0.8        # Jev (API ที่ตรวจสอบแล้วกับ 0.7.2)
+
+# ── full duplex: ตรวจจับเสียงพูด + ตัดเสียงสะท้อน ────────────
+pysilero-vad>=3.4,<4            # Silero VAD แบบเบา ไม่ต้องใช้ torch/onnxruntime
+livekit>=1.1.20,<2              # WebRTC AEC (rtc.AudioProcessingModule) ตัดเสียงน้องจางที่ย้อนเข้าไมค์
+
+# ── ท่องเว็บ ──────────────────────────────────────────────
+playwright>=1.50                # ขับ Google Chrome ที่ติดตั้งอยู่ผ่าน CDP
+
+# ── STT ในเครื่อง: Apple Silicon ใช้ MLX, เครื่องอื่นใช้ faster-whisper (CPU int8) ──
+mlx-whisper>=0.4.3 ; sys_platform == "darwin" and platform_machine == "arm64"
+faster-whisper>=1.2.1 ; sys_platform != "darwin" or platform_machine != "arm64"
+
+# ── ไอคอนบนแถบเมนู (macOS) ───────────────────────────────
+pyobjc-framework-Cocoa>=11 ; sys_platform == "darwin"
+
+# HUD J.A.R.V.I.S (WKWebView)
+pyobjc-framework-WebKit>=11 ; sys_platform == "darwin"
+
+# ── คุมคอม: อ่านจอ (Vision OCR) + ปุ่ม/ช่องจาก Accessibility + เมาส์/คีย์บอร์ด (Quartz) ──
+pyobjc-framework-Quartz>=11 ; sys_platform == "darwin"
+pyobjc-framework-Vision>=11 ; sys_platform == "darwin"
+pyobjc-framework-ApplicationServices>=11 ; sys_platform == "darwin"
+
+# ── LLM ในเครื่อง (mlx_lm.server) ──────────────────────
+mlx-lm>=0.31 ; sys_platform == "darwin" and platform_machine == "arm64"
