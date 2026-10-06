@@ -31,9 +31,7 @@
 
 1. **ฟัง** — ไมค์ฟังตลอดเวลา ตัดเสียงของน้องจางเองออก (จึงพูดแทรกได้)
 2. **ถอดเสียงเป็นข้อความ** — ใช้ตัวถอดเสียงภาษาไทยของ Apple ในเครื่อง (เร็ว ~0.1 วินาที ไม่ส่งเสียงออกไปไหน)
-3. **ตัดสินใจด้วย Jev** — Jev คือ AI ตัดสินใจของ [TypeSafe](https://typesafe.ai) ที่ **เลือกคำตอบจากตัวเลือก**
-   (เช่น "เป็นคำสั่งไหม" "เปิดแอปไหน" "คุยเล่นแบบไหน") ถามทุกอย่างในครั้งเดียว ใช้เวลา ~0.4 วินาที
-   และบอกด้วยว่ามั่นใจแค่ไหน — **ถ้าไม่มั่นใจ น้องจางจะถามใหม่ ไม่เดาสุ่ม**
+3. **ตัดสินใจด้วย Local AI** — ส่งข้อความไปยังโมเดลที่รันอยู่ใน **LM Studio บนเครื่อง** ให้จำแนกคำสั่งและคืน structured JSON (เช่น "เป็นคำสั่งไหม" "เปิดแอปไหน" หรือมีหลายขั้นตอนหรือไม่) จากนั้นโค้ดตรวจ action/app กับ allow-list อีกครั้ง — **ถ้าไม่มั่นใจ น้องจางจะถามใหม่ ไม่เดาสุ่ม**
 4. **ลงมือทำ** — สั่งเครื่อง / ตอบคุยเล่นทันที / ใช้ AI ในเครื่องตอบคำถาม / ค้นเว็บ / คุมเมาส์และคีย์บอร์ด
 5. **ตอบด้วยเสียง** — เสียงผู้ชาย พูดเร็ว (ประโยคที่ใช้บ่อยเตรียมเสียงไว้ล่วงหน้า จึงตอบได้ทันที)
 
@@ -48,8 +46,8 @@
 
 - **Mac ชิป Apple** (M1 ขึ้นไป) แนะนำ RAM 16 GB
 - **macOS 26 ขึ้นไป** แนะนำ — ตัวถอดเสียงไทยของ Apple แม่นที่สุด (รุ่นเก่ากว่าจะใช้ Whisper แทน)
-- **Python 3.10 ขึ้นไป**
-- **คีย์ของ TypeSafe** (สำหรับ Jev) สมัครที่ [typesafe.ai](https://typesafe.ai) — ค่าใช้จ่ายราว 0.0002 ดอลลาร์ต่อประโยค
+- **Python 3.12** (เวอร์ชันที่แนะนำสำหรับ fork นี้)
+- **LM Studio** พร้อม Local LLM ที่โหลดไว้และเปิด Local Server
 - **Google Chrome** (สำหรับค้นเว็บ)
 
 ## ติดตั้ง (ทำครั้งเดียว)
@@ -57,22 +55,28 @@
 **1. ดาวน์โหลดโค้ด**
 
 ```bash
-git clone https://github.com/jaturapornchai/jarvisdemo001.git
-cd jarvisdemo001
+git clone https://github.com/nuttapong1996/jarvis-local-ai.git
+cd jarvis-local-ai
 ```
 
 **2. ติดตั้งโปรแกรมที่ต้องใช้**
 
 ```bash
-/opt/homebrew/bin/python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+brew install python@3.12
+/opt/homebrew/bin/python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
-**3. ใส่คีย์** — คัดลอกไฟล์ตั้งค่า แล้วเปิด `.env` ใส่คีย์ที่บรรทัด `TYPESAFE_API_KEY=`
+**3. ตั้งค่า Local AI** — ติดตั้ง LM Studio, ดาวน์โหลด/Load โมเดล แล้วเปิด **Developer → Start Server** (ค่าเริ่มต้น `127.0.0.1:1234`) จากนั้นคัดลอกไฟล์ตั้งค่า
 
 ```bash
 cp .env.example .env
+curl http://127.0.0.1:1234/v1/models
 ```
+
+`LMSTUDIO_MODEL=` เว้นว่างได้เพื่อใช้โมเดลแรกที่ LM Studio รายงาน หรือใส่ model ID จาก `/v1/models` เพื่อระบุให้แน่นอน
 
 **4. ติดตั้งเสียงภาษาไทย "Kanya"** (ถ้ายังไม่มี)
 System Settings › Accessibility › Spoken Content › System Voice › Manage Voices… › ภาษาไทย › Kanya
@@ -80,7 +84,7 @@ System Settings › Accessibility › Spoken Content › System Voice › Manage
 **5. เปิดภาษาไทยสำหรับการถอดเสียง**
 System Settings › Keyboard › Dictation › Languages › เพิ่มภาษาไทย
 
-> ครั้งแรกที่เปิด จะดาวน์โหลด AI สำหรับตอบคำถามมาไว้ในเครื่องเอง (~2.3 GB)
+> โมเดล AI ดาวน์โหลดและจัดการผ่าน LM Studio โดยตรง Jarvis จะไม่ดาวน์โหลดหรือเปิด LLM server แยกเอง
 
 ## เริ่มใช้งาน
 
@@ -117,20 +121,20 @@ macOS จะถามสิทธิ์ ให้กดอนุญาตแอ�
 | พูดเร็วขึ้น/ช้าลง | `TTS_RATE=230` (ตัวเลขยิ่งมากยิ่งเร็ว) |
 | เสียงทุ้มขึ้น/ปกติ | `TTS_PITCH=28` (เว้นว่าง = เสียงปกติ) |
 | ให้ Chrome เปิดโปรไฟล์ที่ต้องการ | `CHROME_PROFILE=Default` |
-| ใช้ AI บนคลาวด์ (ตอบฉลาดขึ้น) | `LLM_MODE=cloud` และใส่ `GOOGLE_API_KEY` หรือ `OPENROUTER_API_KEY` |
+| ระบุ Local LLM | `LMSTUDIO_MODEL=` เว้นว่างเพื่อ auto-discovery หรือใส่ model ID จาก LM Studio |
 | ปิดหน้าจอ J.A.R.V.I.S | `HUD=off` |
 
 ตัวเลือกทั้งหมดพร้อมคำอธิบายอยู่ใน [`.env.example`](.env.example)
 
 ## ความปลอดภัยและความเป็นส่วนตัว
 
-- **เสียงของคุณไม่ถูกส่งออกจากเครื่อง** — ถอดเสียงในเครื่อง ส่งไปแค่ข้อความสั้นๆ ให้ Jev ตัดสินใจ
-- **AI ตอบคำถามรันในเครื่อง** (ค่าเริ่มต้น)
+- **เสียงและ AI หลักทำงานในเครื่อง** — STT ใช้ Apple Speech/Whisper และข้อความถูกส่งไปยัง LM Studio ที่ `127.0.0.1`
+- **ไม่มี TypeSafe/Jev หรือ Cloud LLM ใน runtime ของ fork นี้**
 - **Chrome ที่ใช้ค้นเว็บเป็นตัวแยก** ไม่ใช้บัญชีที่คุณล็อกอินไว้ (คำสั่ง "เปิด Chrome" จะเปิดตัวที่คุณใช้ประจำเสมอ)
 - **ไม่ทำเรื่องเสี่ยงแทนคุณ**: ไม่กดปุ่ม ลบ / ส่ง / ซื้อ / จ่าย / ล้างถังขยะ / ไม่บันทึก, ไม่กรอกรหัสผ่าน,
   ไม่กด Enter ในแอปแชท — จะบอกให้คุณทำเอง
 - **คนในห้องคุยกันเอง** ไม่ตอบ และไม่เก็บข้อความนั้นลง log
-- ไฟล์ `.env` มีคีย์ลับ อย่าแชร์หรือ commit (`.gitignore` กันไว้ให้แล้ว)
+- ไฟล์ `.env` อาจมีค่าตั้งเฉพาะเครื่อง ไม่ควร commit (`.gitignore` ควรกันไว้)
 
 ## ปัญหาที่พบบ่อย
 
@@ -146,7 +150,7 @@ macOS จะถามสิทธิ์ ให้กดอนุญาตแอ�
 
 | ไฟล์ | หน้าที่ |
 |---|---|
-| `jarvis.py` | ตัวหลัก: ฟัง ถอดเสียง ตัดสินใจด้วย Jev สั่งงาน และพูดตอบ |
+| `jarvis.py` | ตัวหลัก: ฟัง ถอดเสียง ตัดสินใจด้วย Local AI ผ่าน LM Studio สั่งงาน และพูดตอบ |
 | `computer_agent.py` | อ่านจอ คุมเมาส์และคีย์บอร์ด |
 | `browser_agent.py` | ค้นเว็บด้วย Chrome |
 | `hud.html` | หน้าจอ J.A.R.V.I.S |
@@ -154,8 +158,15 @@ macOS จะถามสิทธิ์ ให้กดอนุญาตแอ�
 | `run_app.sh`, `macos/` | สร้างและเปิดแอป Jarvis, ตัวถอดเสียงไทยของ Apple |
 | [`docs/TECHNICAL.md`](docs/TECHNICAL.md) | รายละเอียดเชิงเทคนิคและผลการวัด สำหรับนักพัฒนา |
 
-## ขอบคุณ
+## ขอบคุณ / Credits
 
-- แนวคิดการใช้ Jev: [hey-jev](https://github.com/henryklunaris/hey-jev) และ [TypeSafe](https://docs.typesafe.ai)
-- AI ภาษาไทยในเครื่อง: [Typhoon](https://huggingface.co/typhoon-ai) (SCB10X) ผ่าน [mlx-lm](https://github.com/ml-explore/mlx-lm)
+โปรเจกต์ **jarvis-local-ai** เป็น fork และพัฒนาต่อยอดจากโปรเจกต์ต้นฉบับ **[jaturapornchai/jarvisdemo001](https://github.com/jaturapornchai/jarvisdemo001)** ขอขอบคุณเจ้าของโปรเจกต์ต้นฉบับสำหรับโครงสร้าง น้องจาง ระบบเสียง UI และ agent workflow ที่เป็นรากฐานของเวอร์ชันนี้
+
+เวอร์ชัน fork นี้ปรับส่วน AI decision/router และ LLM ให้ทำงานผ่าน **LM Studio Local API** โดยไม่ใช้ TypeSafe/Jev หรือ Cloud LLM ใน runtime
+
+- โปรเจกต์ต้นฉบับ: [jaturapornchai/jarvisdemo001](https://github.com/jaturapornchai/jarvisdemo001)
+- Local LLM runtime: [LM Studio](https://lmstudio.ai/)
+- Whisper บน Apple Silicon: [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper)
 - แนวคิดการพูดแทรก: [pipecat](https://github.com/pipecat-ai/pipecat) และ livekit agents
+
+> โปรดตรวจสอบไฟล์ LICENSE ของโปรเจกต์ต้นฉบับและคงข้อความลิขสิทธิ์/เงื่อนไขที่กำหนดไว้เมื่อเผยแพร่ fork นี้

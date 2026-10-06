@@ -3,7 +3,6 @@ numpy
 requests
 python-dotenv
 sounddevice>=0.5
-typesafe-sdk>=0.7.2,<0.8        # Jev (API ที่ตรวจสอบแล้วกับ 0.7.2)
 
 # ── full duplex: ตรวจจับเสียงพูด + ตัดเสียงสะท้อน ────────────
 pysilero-vad>=3.4,<4            # Silero VAD แบบเบา ไม่ต้องใช้ torch/onnxruntime
@@ -26,6 +25,3 @@ pyobjc-framework-WebKit>=11 ; sys_platform == "darwin"
 pyobjc-framework-Quartz>=11 ; sys_platform == "darwin"
 pyobjc-framework-Vision>=11 ; sys_platform == "darwin"
 pyobjc-framework-ApplicationServices>=11 ; sys_platform == "darwin"
-
-# ── LLM ในเครื่อง (mlx_lm.server) ──────────────────────
-mlx-lm>=0.31 ; sys_platform == "darwin" and platform_machine == "arm64"

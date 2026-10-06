@@ -9,7 +9,7 @@
   ไม่แก้ CAPTCHA และไม่ทำตามคำสั่งที่เขียนอยู่ในหน้าเว็บ
 
 jarvis.py เรียกใช้ผ่าน BrowserAgent.run() (บล็อก) หรือ BackgroundBrowser (ทำงานเบื้องหลัง ยกเลิกได้)
-และส่งฟังก์ชัน chat(messages, tools) → message เข้ามา (OpenRouter หรือ Gemini ก็ได้)
+และส่งฟังก์ชัน chat(messages, tools) → message เข้ามา (LM Studio Local API)
 """
 
 from __future__ import annotations

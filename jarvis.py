@@ -5,8 +5,8 @@ Jarvis ไทย — "น้องจาง" ผู้ช่วยสั่ง�
 
 ท่อการทำงาน
   ไมค์ ─► ตัดเสียงสะท้อน (AEC) ─► VAD ตัดประโยค ─► Whisper ในเครื่อง (ภาษาไทย) ─► ได้ยิน "น้องจาง" ไหม
-       ─► Jev ตัดสินใจ (typesafe-sdk, speculative fan-out)
-       ─► สั่ง macOS (osascript/shell) | ท่องเว็บด้วย Playwright (browser_agent.py) | ถาม LLM ผ่าน OpenRouter
+       ─► Local LLM ใน LM Studio ตัดสินใจและตอบคำถาม
+       ─► สั่ง macOS (osascript/shell) | ท่องเว็บด้วย Playwright (browser_agent.py) | ถาม Local LLM
        ─► พูดตอบด้วย say -v Kanya (เล่นผ่านลำโพงเอง จึงหยุดได้ทันทีเมื่อถูกพูดแทรก)
 
 วิธีใช้
@@ -20,6 +20,7 @@ Jarvis ไทย — "น้องจาง" ผู้ช่วยสั่ง�
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import platform
 import queue
@@ -42,23 +43,13 @@ from pathlib import Path
 import numpy as np
 import requests
 from dotenv import load_dotenv
-from typesafe_sdk import (
-    Choice,
-    ChoiceAnswer,
-    Noul,
-    NoulAnswer,
-    RetryPolicy,
-    Score,
-    TypeSafeClient,
-    TypeSafeError,
-)
 
 # ════════════════════════════════════════════════════════════════════════════
 # 1) ปรับแต่งได้ง่าย: แอป / คำสั่ง / ระดับเสียง / ประโยคตอบ
-#    คำอธิบายเขียนเป็นอังกฤษ (Jev ถนัดสุด) แล้วแนบคำไทยที่คนใช้เรียกไว้ในวงเล็บ
+#    คำอธิบายเขียนเป็นอังกฤษ (Local AI ถนัดสุด) แล้วแนบคำไทยที่คนใช้เรียกไว้ในวงเล็บ
 # ════════════════════════════════════════════════════════════════════════════
 
-# "ชื่อแอปจริง (ใช้กับ open -a)": ("ชื่อที่ Jarvis พูด", "คำอธิบายให้ Jev")
+# "ชื่อแอปจริง (ใช้กับ open -a)": ("ชื่อที่ Jarvis พูด", "คำอธิบายให้ Local AI")
 APPS = {
     "Spotify":            ("สปอติฟาย", "สปอติฟาย"),
     "Google Chrome":      ("กูเกิลโครม", "โครม"),
@@ -77,7 +68,7 @@ APPS = {
 }
 
 # เว็บยอดนิยม: "เปิดยูทูบ" = เปิดเว็บตรงๆ เลย (เร็วกว่าและไม่เปลือง token เท่าให้เอเจนต์ท่องเว็บ)
-# "ชื่อ": ("ชื่อที่น้องจางพูด", "คำอธิบายให้ Jev", "URL")
+# "ชื่อ": ("ชื่อที่น้องจางพูด", "คำอธิบายให้ Local AI", "URL")
 SITES = {
     "YouTube":     ("ยูทูบ", "ยูทูบ", "https://www.youtube.com"),
     "Facebook":    ("เฟซบุ๊ก", "เฟซบุ๊ก, เฟส", "https://www.facebook.com"),
@@ -88,7 +79,7 @@ SITES = {
     "Netflix":     ("เน็ตฟลิกซ์", "เน็ตฟลิกซ์", "https://www.netflix.com"),
 }
 
-# คำสั่งที่ Jarvis ทำได้: ชื่อ action → คำอธิบายให้ Jev
+# คำสั่งที่ Jarvis ทำได้: ชื่อ action → คำอธิบายให้ Local AI
 ACTIONS = {
     "open_app":       "Open or switch to a named app or a popular website like YouTube (Thai: เปิด..., ขอ..., เข้า...). "
                       "Not for music, sound or searching",
@@ -129,8 +120,8 @@ CATEGORIES = {
              "or speech-recognition junk such as 'ขอบคุณที่รับชม' or 'ซับไตเติ้ลโดย'",
 }
 
-# ระดับเสียงสำหรับ Score: (เปอร์เซ็นต์ที่ตั้งจริง, คำอธิบายให้ Jev)
-# API ของ TypeSafe รับ Score ได้สูงสุด 10 ระดับ จึงเริ่มที่ 10% ส่วน "ปิดเสียง" ใช้ action volume_mute
+# ระดับเสียงสำหรับ Score: (เปอร์เซ็นต์ที่ตั้งจริง, คำอธิบายให้ Local AI)
+# ระดับเสียงเริ่มที่ 10% ส่วน "ปิดเสียง" ใช้ action volume_mute
 VOLUME_LEVELS = [
     (10, "10 percent (สิบ)"), (20, "20 percent"), (30, "30 percent"), (40, "40 percent"),
     (50, "50 percent, half (ครึ่ง)"), (60, "60 percent"), (70, "70 percent"), (80, "80 percent"),
@@ -167,13 +158,13 @@ REPLIES = {
     "no_llm":         ["ยังไม่ได้ตั้งค่าสมองส่วนคุยเลยอะ ตอบไม่ได้"],
     "llm_error":      ["ขอโทษ ตอนนี้คิดไม่ออก ลองใหม่อีกทีนะ"],
     "llm_quota":      ["โควตาของแอลแอลเอ็มหมดแล้วอะ ไว้ลองใหม่นะ"],
-    "jev_error":      ["ขอโทษ ระบบตัดสินใจขัดข้อง ลองใหม่อีกทีนะ"],
+    "router_error":      ["ขอโทษ ระบบตัดสินใจขัดข้อง ลองใหม่อีกทีนะ"],
     "web_cancel":     ["โอเค หยุดละ", "ได้ ไม่ทำต่อแล้ว"],
     "web_fail":       ["หาไม่สำเร็จอะ ลองใหม่อีกทีนะ"],
     "web_no_llm":     ["ต้องตั้งค่าสมองส่วนคุยก่อน ถึงจะท่องเว็บให้ได้"],
 }
 
-# คุยเล่นแบบที่ตอบได้ทันที: Jev จัดประเภทไปพร้อมกับการตัดสินใจรอบแรก (ไม่เพิ่มเวลา) แล้วตอบจากชุดนี้
+# คุยเล่นแบบที่ตอบได้ทันที: Local AI จัดประเภทไปพร้อมกับการตัดสินใจรอบแรก (ไม่เพิ่มเวลา) แล้วตอบจากชุดนี้
 # ไม่ต้องรอ LLM ในเครื่อง (~0.7 วิ) · อะไรที่ต้องคิด/ต้องใช้ข้อมูล ให้เป็น none → LLM ตอบเหมือนเดิม
 CHAT_INTENTS = {
     "greeting":    "Says hi or checks the assistant is there (สวัสดี, หวัดดี, ว่าไง, อยู่ไหม, ตื่นยัง)",
@@ -219,7 +210,7 @@ CHAT_REPLIES = {
     "retry":       ["ลองอะไรดี บอกคำสั่งมาได้เลย"],
     "goodbye":     ["ไว้เจอกันนะ", "บาย พักผ่อนเยอะๆ"],
 }
-CHAT_CONF = 0.7                       # Jev มั่นใจเท่านี้ถึงตอบจากชุดคุยเล่น ไม่งั้นให้ LLM คิดเอง
+CHAT_CONF = 0.7                       # Local AI มั่นใจเท่านี้ถึงตอบจากชุดคุยเล่น ไม่งั้นให้ LLM คิดเอง
 # บอกอารมณ์พร้อมถามด้วย ("หิวจัง กินอะไรดี") → ให้ LLM ตอบคำถาม ไม่ใช่แค่ปลอบ
 MOOD_INTENTS = {"tired", "hungry", "bored", "sad"}
 ASKS_RE = re.compile(r"อะไร|ยังไง|อย่างไร|ทำไม|ไหม|มั้ย|หรือเปล่า|กี่|ที่ไหน|เท่าไ|ช่วย|แนะนำ|ดี\s*$")
@@ -231,7 +222,7 @@ WHISPER_PROMPT = "น้องจาง เปิด Spotify ปิด LINE เ�
 # ต้องมีตัวสะกด ง/น (หรือ ก ที่จบคำ) เสมอ กันคำทั่วไปอย่าง "น้องจ๋า", "น้องจัด", "น้องจับ" ปลุกผิด
 NONG_JANG_RE = r"(?:น้?อง|ด้อง|ท่าน)[\s,]*จ[่้๊๋]?[ัา][่้๊๋]?(?:[งน]|ก(?=[\s,.!?]|$))"
 
-# ข้อความผีที่ Whisper ชอบแต่งขึ้นเองตอนเงียบ/มีเสียงรบกวน → ทิ้งเลย ไม่ต้องถาม Jev
+# ข้อความผีที่ Whisper ชอบแต่งขึ้นเองตอนเงียบ/มีเสียงรบกวน → ทิ้งเลย ไม่ต้องถาม Local AI
 HALLUCINATIONS = ("ขอบคุณที่รับชม", "ขอบคุณสำหรับการรับชม", "ขอบคุณสำหรับชม", "ขอบคุณติดตาม", "ขอบคุณที่ติดตาม",
                   "ขอบคุณสำหรับความสุข", "ซับไตเติ้ล", "subtitle", "โปรดติดตามตอนต่อไป",
                   "กดไลค์", "กดไลก์", "กดติดตาม", "subscribe")
@@ -256,40 +247,33 @@ def env_float(name: str, default: float) -> float:
         return default
 
 
-TYPESAFE_API_KEY = env_str("TYPESAFE_API_KEY")
-OPENROUTER_API_KEY = env_str("OPENROUTER_API_KEY")
-GOOGLE_API_KEY = env_str("GOOGLE_API_KEY") or env_str("GEMINI_API_KEY")
-
-# ผู้ให้บริการ LLM (ตอบคำถาม + ขับเบราว์เซอร์) ทุกตัวใช้ endpoint แบบ OpenAI chat completions จึงใช้โค้ดชุดเดียว
-# LLM_MODE: local = รันในเครื่อง (mlx_lm.server, ฟรี ไม่มีโควตา ข้อมูลไม่ออกนอกเครื่อง) · cloud = OpenRouter/Gemini
-LLM_MODE = env_str("LLM_MODE", "local").lower()
-LOCAL_LLM_MODEL = env_str("LOCAL_LLM_MODEL", "tawankri/typhoon2.5-qwen3-4b-mlx-4Bit")   # Typhoon 2.5 (SCB10X) 4-bit
-LOCAL_LLM_PORT = int(env_float("LOCAL_LLM_PORT", 18765))
-if LLM_MODE == "local":
-    LLM_PROVIDER, LLM_URL, LLM_KEY = "ในเครื่อง", f"http://127.0.0.1:{LOCAL_LLM_PORT}/v1/chat/completions", "local"
-    _DEFAULT_MODEL, _FALLBACK_MODEL = "default_model", ""        # mlx_lm.server ต้องใช้ชื่อนี้ (ชื่ออื่น = โหลดโมเดลใหม่)
-elif OPENROUTER_API_KEY:
-    LLM_PROVIDER, LLM_URL, LLM_KEY = "OpenRouter", "https://openrouter.ai/api/v1/chat/completions", OPENROUTER_API_KEY
-    _DEFAULT_MODEL, _FALLBACK_MODEL = "anthropic/claude-haiku-4.5", ""
-elif GOOGLE_API_KEY:
-    LLM_PROVIDER, LLM_URL, LLM_KEY = "Google", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", GOOGLE_API_KEY
-    # วัดจริง: 3.5-flash-lite ตอบไทยสั้นๆ ~1.3 วิ ส่วน flash-latest คิวเต็ม (503) บ่อยและช้า 6-18 วิ
-    _DEFAULT_MODEL, _FALLBACK_MODEL = "gemini-3.5-flash-lite", "gemini-flash-lite-latest"
-else:
-    LLM_PROVIDER, LLM_URL, LLM_KEY, _DEFAULT_MODEL, _FALLBACK_MODEL = "", "", "", "anthropic/claude-haiku-4.5", ""
+LMSTUDIO_BASE_URL = env_str("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1").rstrip("/")
+LMSTUDIO_MODEL = env_str("LMSTUDIO_MODEL", "")
+LLM_PROVIDER = "LM Studio"
+LLM_URL = f"{LMSTUDIO_BASE_URL}/chat/completions"
+LLM_KEY = "lm-studio"
 
 
-def _model_env(name: str, default: str) -> str:
-    if LLM_PROVIDER == "ในเครื่อง":
-        return default                   # โมเดลในเครื่องกำหนดที่ LOCAL_LLM_MODEL
-    model = env_str(name, default)
-    # ชื่อแบบ OpenRouter (มี /) ใช้กับ Gemini ไม่ได้ → ใช้ค่าเริ่มต้นของ Google แทน
-    return default if LLM_PROVIDER == "Google" and "/" in model else model
+def _discover_lmstudio_model() -> str:
+    if LMSTUDIO_MODEL:
+        return LMSTUDIO_MODEL
+    try:
+        r = requests.get(f"{LMSTUDIO_BASE_URL}/models", timeout=3)
+        r.raise_for_status()
+        models = r.json().get("data", [])
+        if models:
+            return str(models[0]["id"])
+    except (requests.RequestException, ValueError, KeyError, TypeError):
+        pass
+    return ""
 
 
-LLM_MODEL = _model_env("LLM_MODEL", _DEFAULT_MODEL)
-AGENT_MODEL = _model_env("AGENT_MODEL", LLM_MODEL)       # โมเดลที่ขับเบราว์เซอร์ (งานซับซ้อนใช้รุ่นใหญ่ขึ้นได้)
-JEV_MODEL = env_str("JEV_MODEL", "jev-latest")
+def _active_model(preferred: str = "") -> str:
+    return preferred or _discover_lmstudio_model()
+
+
+LLM_MODEL = LMSTUDIO_MODEL
+AGENT_MODEL = env_str("AGENT_MODEL", "")
 CONF_MIN = env_float("CONF_MIN", 0.65)
 TTS_VOICE = env_str("TTS_VOICE", "Kanya")
 TTS_RATE = int(env_float("TTS_RATE", 230))
@@ -299,14 +283,14 @@ BARGE_IN = env_str("BARGE_IN", "auto").lower()          # auto | on | off
 SILENCE_MS = env_float("SILENCE_MS", 550)
 VAD_THRESHOLD = env_float("VAD_THRESHOLD", 0.5)
 def _installed_apps() -> dict:
-    """แอปทั้งหมดที่ติดตั้งในเครื่อง → ใส่เป็นตัวเลือกของ Jev ให้สั่งเปิด/ปิดได้ทุกแอป (EXTRA_APPS=off เพื่อปิด)
-    Choice ของ Jev รับได้สูงสุด 255 ตัวเลือก จึงจำกัดไว้ที่ 220"""
+    """แอปทั้งหมดที่ติดตั้งในเครื่อง → ใส่เป็นตัวเลือกของ Local AI ให้สั่งเปิด/ปิดได้ทุกแอป (EXTRA_APPS=off เพื่อปิด)
+    จำกัดไว้ที่ 220 เพื่อไม่ให้ prompt ใหญ่เกินไป"""
     if env_str("EXTRA_APPS", "auto").lower() in ("off", "0", "no"):
         return {}
     dirs = ["/Applications", "/System/Applications", "/System/Applications/Utilities", Path.home() / "Applications"]
     paths = {p.stem: p for d in dirs if Path(d).is_dir() for p in Path(d).glob("*.app")}
     names = sorted(set(paths) - set(APPS) - set(SITES))[:220]
-    try:                                    # ชื่อที่ macOS แสดงเป็นภาษาไทย (เช่น Chess → หมากรุก) ให้ Jev จับคำพูดไทยได้
+    try:                                    # ชื่อที่ macOS แสดงเป็นภาษาไทย (เช่น Chess → หมากรุก) ให้ Local AI จับคำพูดไทยได้
         from Foundation import NSFileManager
         fm = NSFileManager.defaultManager()
         local = {n: str(fm.displayNameAtPath_(str(paths[n]))).removesuffix(".app") for n in names}
@@ -335,7 +319,6 @@ APP_ACTIONS = {"open_app", "quit_app"}
 RISKY_ACTIONS = {"quit_app", "lock_screen", "sleep"}   # ทำพลาดแล้วน่ารำคาญ → ต้องมั่นใจกว่าปกติ
 CONF_RISKY = max(CONF_MIN, 0.8)
 WEB_ROUTE_CONF = max(CONF_MIN, 0.8)
-AGENT_BRAIN = env_str("AGENT_BRAIN", "jev").lower()   # สมองของเอเจนต์คุมคอม: jev (เร็ว) / llm (LLM เรียกเครื่องมือ)
 COMPOUND_MIN = env_float("COMPOUND_MIN", 0.5)   # สเปก: ≥ 0.5 ถามรอบสอง (ทีมวัดแล้วแนะนำ 0.75 กันประโยคเดี่ยวถูกแยกผิด)
 HISTORY_IDLE_SEC = 180                # เงียบนานเกิน 3 นาที = เริ่มเรื่องใหม่ ล้างประวัติ (ไม่ส่งบทเก่าให้ LLM เปลือง token)   # category=question แต่ action=web_task มั่นใจเท่านี้ → ค้นเว็บแทนตอบเอง
 SPEAK_FIRST = {"volume_mute", "lock_screen", "sleep"}  # พูดให้จบก่อนค่อยทำ ไม่งั้นจะไม่ได้ยิน
@@ -350,7 +333,7 @@ USE_WHISPER_PROMPT = _prompt_mode == "on" or (_prompt_mode == "auto" and "typhoo
 SAVE_UTTERANCES = env_str("SAVE_UTTERANCES")           # ใส่โฟลเดอร์ = เก็บเสียงแต่ละประโยคเป็น WAV ไว้ทดสอบ STT
 # เสียงคนคุยกันที่ไม่ได้เรียกน้องจาง: ปกติไม่พิมพ์ข้อความลง log (log ของแอปเก็บเป็นไฟล์) · all = พิมพ์ไว้ดีบัก
 LOG_HEARD = env_str("LOG_HEARD", "").lower()
-# ความเห็นที่สอง: ถ้าเรียกชื่อแล้วแต่ Jev ยังไม่มั่นใจ ให้ถอดเสียงเดิมซ้ำด้วยรุ่นที่จูนภาษาไทยก่อนขอให้พูดใหม่
+# ความเห็นที่สอง: ถ้าเรียกชื่อแล้วแต่ Local AI ยังไม่มั่นใจ ให้ถอดเสียงเดิมซ้ำด้วยรุ่นที่จูนภาษาไทยก่อนขอให้พูดใหม่
 # auto = ใช้ถ้าโมเดลอยู่ในเครื่องแล้ว (ไม่ดาวน์โหลดเอง), off = ปิด, หรือใส่ชื่อ repo MLX เอง
 STT_SECOND = env_str("STT_SECOND_OPINION", "auto")
 TYPHOON_REPO = "chayapats/typhoon-whisper-turbo-mlx"
@@ -359,7 +342,6 @@ TYPHOON_REPO = "chayapats/typhoon-whisper-turbo-mlx"
 STT_ENGINE = env_str("STT_ENGINE", "auto").lower()
 APPLE_STT_SRC = ROOT / "macos" / "nongjang_stt.swift"
 APPLE_STT_BIN = ROOT / "bin" / "nongjang-stt"
-JEV_PRICE_PER_MTOK = 0.042            # ดอลลาร์ต่อ input token 1 ล้าน (docs.typesafe.ai)
 
 # ════════════════════════════════════════════════════════════════════════════
 # 3) ตัวช่วยทั่วไป
@@ -452,7 +434,7 @@ def has_wake(text: str) -> bool:
 
 
 def strip_wake(text: str) -> str:
-    """ตัดคำปลุกออกก่อนส่งให้ Jev เช่น "น้องจาง เปิดไลน์" → "เปิดไลน์" """
+    """ตัดคำปลุกออกก่อนส่งให้ Local AI เช่น "น้องจาง เปิดไลน์" → "เปิดไลน์" """
     if WAKE_RE is None:
         return text.strip()
     if WAKE_RE.search(text):
@@ -507,7 +489,7 @@ def thai_digits(text: str) -> str:
 
 def number_in_text(text: str) -> int | None:
     """ระดับเสียง 0-100 ที่พูดมา (ตัวเลขหรือคำไทย) โดยเลือกเลขหลังคำว่า "เสียง" หรือหน้า "%" ก่อน
-    (Jev ไม่ถนัดตัวเลข docs แนะนำให้โค้ดทำ; "เปิดเพลงที่ 2 แล้วตั้งเสียง 60" → 60 ไม่ใช่ 2)"""
+    (Local AI ไม่ถนัดตัวเลข docs แนะนำให้โค้ดทำ; "เปิดเพลงที่ 2 แล้วตั้งเสียง 60" → 60 ไม่ใช่ 2)"""
     m = _VOLUME_RE.search(thai_digits(text))
     if m:
         value = int(m.group(1) or m.group(2))
@@ -540,116 +522,37 @@ def speakable(text: str) -> str:
     return " ".join(EMOJI_RE.sub("", text).split())
 
 
-def _port_open(port: int) -> bool:
-    import socket
-    with socket.socket() as s:
-        s.settimeout(0.2)
-        return s.connect_ex(("127.0.0.1", port)) == 0
-
-
 def warm_local_llm() -> None:
-    """เปิดเซิร์ฟเวอร์ LLM ในเครื่องและยิงคำขอสั้นๆ หนึ่งครั้ง (ครั้งแรกต้องคอมไพล์ Metal kernel ~0.6-0.9 วิ)"""
+    """ตรวจว่า LM Studio Local Server พร้อม และ warm up โมเดลหนึ่งครั้ง"""
     try:
-        llm_chat([{"role": "user", "content": "สวัสดี"}], max_tokens=4)
-        print("  🧠 LLM ในเครื่องพร้อมแล้ว")
+        model = _active_model()
+        if not model:
+            raise RuntimeError("LM Studio ยังไม่มีโมเดลที่โหลดอยู่")
+        llm_chat([{"role": "user", "content": "สวัสดี"}], max_tokens=4, timeout=60)
+        print(f"  🧠 LM Studio พร้อมแล้ว · {model}")
     except Exception as e:
-        print(f"  ⚠️  LLM ในเครื่องยังไม่พร้อม: {e}")
-
-
-class LocalLLM:
-    """เปิด mlx_lm.server ให้เองตอนต้องใช้ครั้งแรก และปิดตอนออกจากโปรแกรม (ผูก 127.0.0.1 เท่านั้น)
-    จำกัด prompt cache ไว้ 2 GB: ถ้าไม่จำกัด เซิร์ฟเวอร์เคยบวมถึง 18 GB แล้ว Metal หน่วยความจำไม่พอจนค้าง"""
-    proc: subprocess.Popen | None = None
-    lock = threading.Lock()
-    port = LOCAL_LLM_PORT
-
-    @classmethod
-    def url(cls) -> str:
-        return f"http://127.0.0.1:{cls.port}/v1/chat/completions"
-
-    @classmethod
-    def _is_ours(cls, port: int) -> bool:
-        """พอร์ตนี้เป็นเซิร์ฟเวอร์ LLM แบบ OpenAI จริงไหม (กันไปชนโปรแกรมอื่นที่ใช้พอร์ตเดียวกัน)"""
-        try:
-            r = requests.get(f"http://127.0.0.1:{port}/v1/models", timeout=1)
-            return r.ok and "data" in r.json()
-        except (requests.RequestException, ValueError):
-            return False
-
-    @classmethod
-    def ensure(cls, wait: float = 120) -> None:
-        with cls.lock:
-            if cls._is_ours(cls.port):
-                return
-            while _port_open(cls.port):          # พอร์ตถูกโปรแกรมอื่นใช้อยู่ → เลื่อนไปพอร์ตถัดไป
-                cls.port += 1
-            from huggingface_hub import try_to_load_from_cache
-            cached = isinstance(try_to_load_from_cache(LOCAL_LLM_MODEL, "config.json"), str)
-            print(f"⏳ เปิด LLM ในเครื่อง ({LOCAL_LLM_MODEL}){'' if cached else ' — ครั้งแรกดาวน์โหลด ~2.3 GB'} ...")
-            env = dict(os.environ, HF_HUB_OFFLINE="1") if cached else dict(os.environ)
-            log = open(ROOT / ".local-llm.log", "a")
-            cls.proc = subprocess.Popen(
-                [sys.executable, "-m", "mlx_lm.server", "--model", LOCAL_LLM_MODEL, "--host", "127.0.0.1",
-                 "--port", str(cls.port), "--prompt-cache-size", "4", "--prompt-cache-bytes", str(2 * 1024 ** 3),
-                 "--chat-template-args", '{"enable_thinking": false}'],
-                stdout=log, stderr=log, env=env)
-            import atexit
-            atexit.register(cls.stop)
-            end = time.monotonic() + wait
-            while time.monotonic() < end and cls.proc.poll() is None:
-                if cls._is_ours(cls.port):
-                    return
-                time.sleep(0.3)
-            raise RuntimeError("เปิด LLM ในเครื่องไม่สำเร็จ ดู .local-llm.log")
-
-    @classmethod
-    def stop(cls) -> None:
-        if cls.proc is not None and cls.proc.poll() is None:
-            cls.proc.terminate()
+        print(f"  ⚠️  LM Studio ยังไม่พร้อม: {e}")
 
 
 def llm_chat(messages: list, model: str = "", tools: list | None = None,
              max_tokens: int = 400, temperature: float = 0.6, timeout: float = 25) -> dict:
-    """เรียก LLM ผ่าน endpoint แบบ OpenAI (ในเครื่อง, OpenRouter หรือ Gemini) คืน message ของคำตอบ
-    ถ้าโมเดลหลักคิวเต็ม/ล่ม/ช้าเกิน (429, 5xx, timeout) จะลองโมเดลสำรองให้เอง"""
-    if not LLM_KEY:
-        raise RuntimeError("ยังไม่ได้ตั้ง OPENROUTER_API_KEY หรือ GOOGLE_API_KEY")
-    body = {"messages": messages, "max_tokens": max_tokens, "temperature": temperature}
+    """เรียก Local LLM ผ่าน OpenAI-compatible API ของ LM Studio เท่านั้น"""
+    active = _active_model(model or (AGENT_MODEL if tools else LLM_MODEL))
+    if not active:
+        raise RuntimeError("LM Studio ยังไม่มีโมเดลที่โหลดอยู่ — เปิด LM Studio > Developer > Start Server และ Load Model")
+    body = {"model": active, "messages": messages, "max_tokens": max_tokens,
+            "temperature": min(temperature, 0.2)}
     if tools:
         body |= {"tools": tools, "tool_choice": "auto"}
-    if LLM_PROVIDER == "ในเครื่อง":
-        LocalLLM.ensure()
-        # โมเดล 4B มั่วง่ายถ้า temperature สูง (วัดจริง: 0.6 ผิด 3/10, 0.1 ผิด 2/10) และกันพูดวน
-        body |= {"temperature": min(temperature, 0.2), "repetition_penalty": 1.05}
-    error, statuses = "", []
-    url = LocalLLM.url() if LLM_PROVIDER == "ในเครื่อง" else LLM_URL
-    for m in dict.fromkeys(x for x in (model or LLM_MODEL, _FALLBACK_MODEL) if x):
-        try:
-            r = requests.post(url, json={**body, "model": m}, timeout=timeout,
-                              headers={"Authorization": f"Bearer {LLM_KEY}", "X-Title": "Jarvis Thai"})
-            wait = _retry_delay(r) if r.status_code == 429 else None
-            if wait is not None and wait <= 8:      # ชนเพดานต่อนาที (เช่น Gemini ฟรี) → รอสั้นๆ แล้วลองซ้ำ
-                print(f"  ⏳ {LLM_PROVIDER} {m} ขอให้รอ {wait:.0f} วิ (เพดานต่อนาที)")
-                time.sleep(wait + 0.5)
-                r = requests.post(url, json={**body, "model": m}, timeout=timeout,
-                                  headers={"Authorization": f"Bearer {LLM_KEY}", "X-Title": "Jarvis Thai"})
-        except (requests.Timeout, requests.ConnectionError) as e:
-            error = f"{LLM_PROVIDER} {m} → {type(e).__name__}"
-            print(f"  ⚠️  {error} — ลองโมเดลสำรอง")
-            continue
-        if r.status_code == 200:
-            message = r.json()["choices"][0]["message"]
-            if message.get("content"):     # บางโมเดล (Qwen3) แนบความคิดใน <think> มาด้วย → ตัดทิ้ง
-                message["content"] = re.sub(r"<think>.*?</think>", "", message["content"], flags=re.S).strip()
-            return message
-        statuses.append(r.status_code)
-        error = f"{LLM_PROVIDER} {m} → {r.status_code}: {_api_error_message(r)}"
-        if r.status_code not in (429, 500, 502, 503, 504):
-            break
-        print(f"  ⚠️  {error} — ลองโมเดลสำรอง")
-    if statuses and all(s == 429 for s in statuses):
-        raise LLMQuotaError(error)
-    raise RuntimeError(error)
+    try:
+        r = requests.post(LLM_URL, json=body, timeout=timeout,
+                          headers={"Authorization": "Bearer lm-studio", "X-Title": "Jarvis Local AI"})
+    except (requests.Timeout, requests.ConnectionError) as e:
+        raise RuntimeError(f"เชื่อมต่อ LM Studio ไม่สำเร็จ: {e}") from e
+    if not r.ok:
+        raise RuntimeError(f"LM Studio HTTP {r.status_code}: {_api_error_message(r)}")
+    data = r.json()
+    return data["choices"][0]["message"]
 
 
 class LLMQuotaError(RuntimeError):
@@ -675,10 +578,10 @@ def _api_error_message(r) -> str:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 4) Jev: ตัดสินใจด้วย speculative fan-out (ถามทุกคำถามในครั้งเดียว)
+# 4) Local Decision Engine: ให้ LM Studio คืน structured JSON แล้ว validate ฝั่ง Python
 # ════════════════════════════════════════════════════════════════════════════
 
-class JevError(Exception):
+class LocalDecisionError(Exception):
     pass
 
 
@@ -687,179 +590,110 @@ class Step:
     action: str
     app: str = "none"
     volume: int | None = None
-    conf: float = 1.0          # ความมั่นใจต่ำสุดของคำตอบที่ขั้นนี้ใช้จริง
+    conf: float = 1.0
 
 
 @dataclass
 class Decision:
     text: str
     category: str
-    conf: float                # ความมั่นใจรวม = ต่ำสุดของคำตอบที่ใช้จริง
-    compound: float = 0.0      # P(มี 2 คำสั่ง)
+    conf: float
+    compound: float = 0.0
     steps: list[Step] = field(default_factory=list)
-    ms: float = 0.0            # เวลาที่ใช้กับ Jev รวมทุกรอบ
+    ms: float = 0.0
     calls: int = 0
     tokens: int = 0
-    chat: str = "none"         # ประเภทคุยเล่น (CHAT_INTENTS) ที่ตอบได้ทันทีโดยไม่ต้องใช้ LLM
+    chat: str = "none"
     chat_conf: float = 0.0
 
 
 APP_CRITERIA = {name: v[1] for name, v in (APPS | SITES | EXTRA_APPS).items()}
 
 
-def step_questions(suffix: str = "", scope: str | None = None,
-                   actions: dict | None = None, apps: dict | None = None) -> dict:
-    """ชุดคำถาม action/app/volume — scope บังคับให้ดูเฉพาะคำสั่ง FIRST/SECOND
-    actions/apps = จำกัดตัวเลือก (รอบสองถามเฉพาะที่รอบแรกเห็นว่าเป็นไปได้ ประหยัด token ~80%)"""
-    lead = f"Consider ONLY the {scope} action the speaker asks for. " if scope else ""
-    return {
-        f"action{suffix}": Choice(
-            instructions=lead + "Which action does the speaker want the assistant to do?",
-            criteria=actions or ACTIONS),
-        f"app{suffix}": Choice(
-            instructions=lead + "Which app does this action open or quit? Choose none if no app is named.",
-            criteria=apps or APP_CRITERIA),
-        f"volume{suffix}": Score(
-            instructions=lead + "If the speaker sets the volume to a specific level, which level is it?",
-            criteria=[desc for _, desc in VOLUME_LEVELS]),
-    }
-
-
-class Jev:
-    def __init__(self):
-        if not TYPESAFE_API_KEY:
-            raise JevError("ยังไม่ได้ใส่ TYPESAFE_API_KEY ใน .env (คัดลอกจาก .env.example แล้วใส่คีย์)")
-        self.client = TypeSafeClient(api_key=TYPESAFE_API_KEY, model=JEV_MODEL, timeout=8.0,
-                                     retry=RetryPolicy(max_retries=1))
-
-    @staticmethod
-    def state(text: str, extra: str = "") -> dict:
-        return {
-            "transcript": text,
-            "language": "th",
-            "context": "Thai speech-to-text transcript captured by น้องจาง (Nong Jang), an always-listening "
-                       "voice assistant that controls a Mac and can browse the web. Speech recognition may "
-                       "misspell words or write English app names in Thai script. The speaker may be talking "
-                       "to the assistant or to someone else." + (f" {extra}" if extra else ""),
-        }
-
-    def ask(self, tag: str, text: str, questions: dict, extra: str = ""):
-        """เรียก Jev หนึ่งครั้ง + print trace (เวลา, คำตอบ, confidence)"""
-        t0 = time.perf_counter()
+def _json_object(text: str) -> dict:
+    text = (text or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.I | re.S).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        m = re.search(r"\{.*\}", text, re.S)
+        if not m:
+            raise LocalDecisionError("Local AI ไม่ได้คืน JSON")
         try:
-            resp = self.client.system_one(state=self.state(text, extra), questions=questions)
-        except TypeSafeError as e:
-            raise JevError(f"เรียก Jev ไม่สำเร็จ: {e}") from e
-        ms = (time.perf_counter() - t0) * 1000
-        print_trace(tag, resp, ms)
-        return resp, ms
+            return json.loads(m.group(0))
+        except json.JSONDecodeError as e:
+            raise LocalDecisionError(f"JSON จาก Local AI ไม่ถูกต้อง: {e}") from e
 
-    def ask_state(self, tag: str, state: dict, questions: dict):
-        """เรียก Jev ด้วย state ที่กำหนดเอง (เช่น เอเจนต์คุมคอมส่งรายการบนจอ) + print trace"""
-        t0 = time.perf_counter()
-        try:
-            resp = self.client.system_one(state=state, questions=questions)
-        except TypeSafeError as e:
-            raise JevError(f"เรียก Jev ไม่สำเร็จ: {e}") from e
-        print_trace(tag, resp, (time.perf_counter() - t0) * 1000)
-        return resp
 
+class LocalDecisionEngine:
     def decide(self, text: str, extra: str = "") -> Decision:
-        # รอบ 1: ถามทุกอย่างพร้อมกัน (ประเภท, มีสองคำสั่งไหม, คำสั่ง, แอป, ระดับเสียง) แล้วโค้ดค่อยเลือกใช้
-        questions = {
-            "category": Choice(instructions="What kind of utterance is this transcript?", criteria=CATEGORIES),
-            "compound": Noul(
-                instructions="Does the speaker ask the assistant to do TWO separate actions in this transcript?",
-                criteria={"true": "Two different actions joined by words like แล้ว, แล้วก็, และ, กับ, จากนั้น "
-                                  "(e.g. หยุดเพลงแล้วเปิดสแล็ก = pause music AND open Slack)",
-                          "false": "Only one action, or a question, chit-chat, or noise"}),
-            **step_questions(),
-            # คุยเล่นแบบไหน (ถามไปพร้อมกันเลย ไม่เพิ่มเวลา) → ตอบทันทีได้โดยไม่ต้องรอ LLM
-            "chat": Choice(instructions="If the speaker is chatting casually with the assistant, which kind of chat "
-                                        "is it? Choose none if it needs a real answer or is not casual chat.",
-                           criteria=CHAT_INTENTS),
-        }
-        r1, ms = self.ask("รอบ 1 · fan-out", text, questions, extra)
+        actions = list(ACTIONS)
+        apps = list(APP_CRITERIA)
+        chats = list(CHAT_INTENTS)
+        system = f"""You are the local intent router for a Thai macOS voice assistant named น้องจาง.
+Return ONE JSON object only. Never execute anything and never invent actions/apps outside the allowed lists.
+Speech-to-text may contain Thai misspellings or English app names written in Thai.
+Allowed categories: command, question, chat, noise.
+Allowed actions: {json.dumps(actions, ensure_ascii=False)}
+Allowed apps/sites: {json.dumps(apps, ensure_ascii=False)}
+Allowed chat intents: {json.dumps(chats, ensure_ascii=False)}
+Schema:
+{{"category":"command|question|chat|noise","confidence":0.0,"compound":0.0,
+ "chat":"none","chat_confidence":0.0,
+ "steps":[{{"action":"allowed action","app":"allowed app or none","volume":null,"confidence":0.0}}]}}
+For volume_set, volume must be integer 0..100. For non-command, steps must be [].
+Questions needing live web information should be command with action web_task. Questions about current screen should use read_screen.
+Use multiple steps only when the user clearly requests multiple actions. Confidence must be 0..1.
+"""
+        user = text + (f"\nContext: {extra}" if extra else "")
+        t0 = time.perf_counter()
         try:
-            cat = r1.choices["category"]
-            d = Decision(text, cat.choice, cat.confidence, compound=r1.nouls["compound"].noul,
-                         ms=ms, calls=1, tokens=r1.usage.input_tokens or 0)
-            chat = r1.choices.get("chat")
-            if chat is not None:
-                d.chat, d.chat_conf = chat.choice, chat.confidence
-            act = r1.choices["action"]
-            if d.category == "question" and act.choice in ("web_task", "read_screen") \
-                    and act.confidence >= WEB_ROUTE_CONF:
-                # ใช้ประโยชน์จาก fan-out: เป็นคำถามก็จริง แต่ต้องใช้ข้อมูลสด (อากาศ ราคา ข่าว) → ค้นเว็บ
-                # หรือถามว่า "อ่านจอได้ไหม / บนจอเขียนว่าอะไร" → อ่านจอจริงเลย (อ่านอย่างเดียว ไม่เสี่ยง)
-                why = "คำถามที่ต้องใช้ข้อมูลสด" if act.choice == "web_task" else "ถามเรื่องบนจอ"
-                print(f"  ↪ {why} → {act.choice} (action conf {act.confidence:.2f})")
-                d.category, d.conf, d.steps = "command", act.confidence, [Step(act.choice, conf=act.confidence)]
-                return d
-            if d.category != "command":
-                return d
-            steps = [read_step(r1, "", text)]
-            # รอบ 2: ประโยคมีสองคำสั่ง → ถามชุดเดิมซ้ำสองชุด แยกขอบเขต FIRST / SECOND (ไม่ใช้ LLM แยกประโยค)
-            # ถามเฉพาะคำสั่ง/แอปที่รอบ 1 ให้ความน่าจะเป็น ≥ 1% (วัดจริง: 4,640 → ~900 token ความแม่นเท่าเดิม)
-            if d.compound >= COMPOUND_MIN:
-                acts, apps = likely(act, ACTIONS), likely(r1.choices["app"], APP_CRITERIA)
-                r2, ms2 = self.ask("รอบ 2 · แยกสองคำสั่ง", text,
-                                   {**step_questions("_1", "FIRST", acts, apps),
-                                    **step_questions("_2", "SECOND", acts, apps)}, extra)
-                d.ms, d.calls, d.tokens = d.ms + ms2, 2, d.tokens + (r2.usage.input_tokens or 0)
-                split = []
-                for s in (read_step(r2, "_1", text), read_step(r2, "_2", text)):
-                    if s.action != "none" and all((s.action, s.app) != (x.action, x.app) for x in split):
-                        split.append(s)
-                steps = split or steps
-        except KeyError as e:
-            raise JevError(f"คำตอบจาก Jev ไม่ครบ: ไม่มี {e}") from e
-        d.steps = steps
-        d.conf = min([cat.confidence] + [s.conf for s in steps])
+            msg = llm_chat([{"role": "system", "content": system}, {"role": "user", "content": user}],
+                           max_tokens=500, temperature=0.0, timeout=30)
+            data = _json_object(msg.get("content") or "")
+        except (RuntimeError, requests.RequestException, KeyError, TypeError, ValueError, LocalDecisionError) as e:
+            raise LocalDecisionError(f"Local AI ตัดสินใจไม่สำเร็จ: {e}") from e
+        ms = (time.perf_counter() - t0) * 1000
+        category = str(data.get("category", "noise"))
+        if category not in {"command", "question", "chat", "noise"}:
+            category = "noise"
+        conf = max(0.0, min(1.0, float(data.get("confidence", 0.0) or 0.0)))
+        compound = max(0.0, min(1.0, float(data.get("compound", 0.0) or 0.0)))
+        d = Decision(text, category, conf, compound=compound, ms=ms, calls=1,
+                     chat=str(data.get("chat", "none")),
+                     chat_conf=max(0.0, min(1.0, float(data.get("chat_confidence", 0.0) or 0.0))))
+        if d.chat not in CHAT_INTENTS:
+            d.chat = "none"
+        if category != "command":
+            return d
+        for raw in data.get("steps", [])[:4]:
+            action = str(raw.get("action", "none"))
+            app = str(raw.get("app", "none"))
+            if action not in ACTIONS or action == "none":
+                continue
+            if app not in APP_CRITERIA:
+                app = "none"
+            step_conf = max(0.0, min(1.0, float(raw.get("confidence", conf) or 0.0)))
+            volume = None
+            if action == "volume_set":
+                spoken = number_in_text(text)
+                if spoken is not None:
+                    volume = spoken
+                else:
+                    try:
+                        volume = max(0, min(100, int(raw.get("volume"))))
+                    except (TypeError, ValueError):
+                        step_conf = 0.0
+            if action in APP_ACTIONS and app == "none":
+                step_conf = 0.0
+            d.steps.append(Step(action, app, volume, step_conf))
+        if not d.steps:
+            d.conf = 0.0
+        else:
+            d.conf = min([d.conf] + [x.conf for x in d.steps])
+        print(f"  🧠 Local AI · {describe(d)} · conf {d.conf:.2f} · {d.ms:.0f} ms")
         return d
-
-
-def likely(answer, criteria: dict, p: float = 0.01) -> dict:
-    """ตัวเลือกที่ Jev รอบแรกให้ความน่าจะเป็น ≥ p (รวม none เสมอ)"""
-    return {k: v for k, v in criteria.items() if k == "none" or answer.probabilities.get(k, 0.0) >= p}
-
-
-def read_step(resp, suffix: str, text: str) -> Step:
-    """แปลงคำตอบ action/app/volume เป็นหนึ่งขั้นตอน พร้อมความมั่นใจของส่วนที่ใช้จริง"""
-    action = resp.choices[f"action{suffix}"]
-    step = Step(action.choice, conf=action.confidence)
-    if step.action in APP_ACTIONS:
-        app = resp.choices[f"app{suffix}"]
-        step.app = app.choice
-        step.conf = min(step.conf, app.confidence if app.choice != "none" else 0.0)  # ไม่รู้ว่าแอปไหน = ถามใหม่
-    if step.action == "volume_set":
-        spoken = number_in_text(text)
-        if spoken is not None:          # พูดตัวเลขมาชัดๆ ใช้ค่านั้นเลย
-            step.volume = spoken
-        else:                           # ไม่งั้นใช้ระดับที่ Jev ให้ความน่าจะเป็นสูงสุด
-            vol = resp.scores[f"volume{suffix}"]
-            step.volume = VOLUME_LEVELS[max(vol.probabilities, key=vol.probabilities.get)][0]
-            step.conf = min(step.conf, vol.confidence)
-    return step
-
-
-def print_trace(tag: str, resp, ms: float) -> None:
-    clock = datetime.now().strftime("%H:%M:%S")
-    tokens = resp.usage.input_tokens or 0
-    print(f"  ┌─ Jev {tag} · {clock} · {ms:.0f} ms · {resp.model} · {tokens} tokens")
-    for name, a in resp.answers.items():
-        if isinstance(a, ChoiceAnswer):
-            value, conf = a.choice, a.confidence
-            runner = sorted(a.probabilities.items(), key=lambda kv: -kv[1])[1:2]
-            extra = f"  (รอง: {runner[0][0]} {runner[0][1]:.2f})" if runner else ""
-        elif isinstance(a, NoulAnswer):  # Noul ไม่มี confidence ให้ → ใช้ระยะห่างจาก 0.5
-            value, conf, extra = f"{'ใช่' if a.noul >= 0.5 else 'ไม่ใช่'} p={a.noul:.2f}", max(a.noul, 1 - a.noul), ""
-        else:                            # ScoreAnswer
-            level = max(a.probabilities, key=a.probabilities.get)
-            value, conf, extra = f"{VOLUME_LEVELS[level][0]}%", a.confidence, f"  (ค่าคาดหมาย {a.score:.1f})"
-        flag = " ⚠" if conf < CONF_MIN else "  "
-        print(f"  │ {name:<10} {value:<16} conf {conf:.2f}{flag}{extra}")
-    print("  └─")
 
 
 def required_conf(d: Decision) -> float:
@@ -1111,7 +945,7 @@ def save_utterance(audio: np.ndarray, text: str) -> None:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 6) สมองกลาง: ข้อความ → Jev → สั่งเครื่อง / ถาม LLM / ข้าม → พูดตอบ
+# 6) สมองกลาง: ข้อความ → Local AI → สั่งเครื่อง / ถาม LLM / ข้าม → พูดตอบ
 # ════════════════════════════════════════════════════════════════════════════
 
 LLM_SYSTEM_PROMPT = """คุณคือ "น้องจาง" ผู้ช่วยเสียงบนเครื่อง Mac ของผู้ใช้ เป็นผู้ชาย คุยกับผู้ใช้เหมือนเพื่อนสนิท เป็นกันเอง ตอบไว
@@ -1131,7 +965,7 @@ LLM_SYSTEM_PROMPT = """คุณคือ "น้องจาง" ผู้ช�
 
 class Assistant:
     def __init__(self, speaker, dry_run: bool = False, background_web: bool = False):
-        self.jev = Jev()
+        self.router = LocalDecisionEngine()
         self.speaker = speaker
         self.dry_run = dry_run
         self.background_web = background_web   # โหมดไมค์: ท่องเว็บเบื้องหลัง คุยต่อได้ระหว่างรอ
@@ -1149,7 +983,7 @@ class Assistant:
         self.last_failed, self.last_failed_at = "", 0.0   # งานล่าสุดที่ทำไม่สำเร็จ ("ลองดูสิ" = ลองงานนี้ใหม่)
         from concurrent.futures import ThreadPoolExecutor
         self._pool = ThreadPoolExecutor(max_workers=1)
-        self._stt_pool = ThreadPoolExecutor(max_workers=1)   # ถอดเสียงซ้ำ (ความเห็นที่สอง) ไปพร้อมกับ Jev
+        self._stt_pool = ThreadPoolExecutor(max_workers=1)   # ถอดเสียงซ้ำ (ความเห็นที่สอง) ไปพร้อมกับ Local AI
         self._early = None
 
     @property
@@ -1157,7 +991,7 @@ class Assistant:
         return self.job != ""
 
     def handle(self, text: str, second_opinion=None) -> None:
-        """second_opinion() = ถอดเสียงเดิมซ้ำด้วยอีกรุ่น (เรียกเฉพาะตอนเรียกชื่อแล้วแต่ Jev ยังไม่มั่นใจ)"""
+        """second_opinion() = ถอดเสียงเดิมซ้ำด้วยอีกรุ่น (เรียกเฉพาะตอนเรียกชื่อแล้วแต่ Local AI ยังไม่มั่นใจ)"""
         self.last_text, self.thinking = text, True
         try:
             self._handle(text, second_opinion)
@@ -1166,12 +1000,12 @@ class Assistant:
 
     def _decide(self, text: str, context: str = "") -> Decision | None:
         try:
-            d = self.jev.decide(text, context)
-        except JevError as e:
+            d = self.router.decide(text, context)
+        except LocalDecisionError as e:
             print(f"  ❌ {e}")
-            self.speaker.say(pick("jev_error"))
+            self.speaker.say(pick("router_error"))
             return None
-        print(f"  ⇒ {describe(d)} · conf {d.conf:.2f} (เกณฑ์ {required_conf(d):.2f}) · Jev {d.calls} ครั้ง {d.ms:.0f} ms")
+        print(f"  ⇒ {describe(d)} · conf {d.conf:.2f} (เกณฑ์ {required_conf(d):.2f}) · Local AI {d.calls} ครั้ง {d.ms:.0f} ms")
         return d
 
     def _handle(self, text: str, second_opinion=None) -> None:
@@ -1183,19 +1017,19 @@ class Assistant:
         text = strip_wake(text)
         if self.history and time.monotonic() - self.last_active > HISTORY_IDLE_SEC:
             self.history.clear()
-        # บริบทการคุย: ถ้าเพิ่งคุยกันอยู่ บอก Jev ว่าน้องจางเพิ่งพูดอะไรไป (ผู้ใช้อาจกำลังตอบกลับ)
+        # บริบทการคุย: ถ้าเพิ่งคุยกันอยู่ บอก Local AI ว่าน้องจางเพิ่งพูดอะไรไป (ผู้ใช้อาจกำลังตอบกลับ)
         chatting = self.history and time.monotonic() - self.last_active < FOLLOWUP_SEC
         context = f"The assistant just said: \"{self.history[-1][1][:120]}\". The speaker may be replying to it." \
             if chatting else ""
         if woke:
             context += " The speaker called the assistant by name, so this is addressed to the assistant."
-        # LLM ในเครื่องเริ่มคิดคำตอบไปพร้อมกับ Jev เลย ถ้าเป็นคำถามจะตอบได้ไวขึ้น ~0.5 วิ (ถ้าเป็นคำสั่งก็ทิ้งไป)
+        # LLM ในเครื่องเริ่มคิดคำตอบไปพร้อมกับ Local AI เลย ถ้าเป็นคำถามจะตอบได้ไวขึ้น ~0.5 วิ (ถ้าเป็นคำสั่งก็ทิ้งไป)
         early, early_text = None, text
         if LLM_PROVIDER == "ในเครื่อง":
             if self._early is not None:
                 self._early.cancel()               # อันเก่าที่ยังไม่เริ่ม ไม่ต้องคิดแล้ว
             early = self._early = self._pool.submit(self._think, text)
-        # เรียกชื่อมา → เริ่มถอดเสียงซ้ำด้วยอีกรุ่นไปพร้อมกับ Jev เลย (ถ้า Jev ไม่มั่นใจจะได้ไม่ต้องรอเพิ่ม ~0.5 วิ)
+        # เรียกชื่อมา → เริ่มถอดเสียงซ้ำด้วยอีกรุ่นไปพร้อมกับ Local AI เลย (ถ้า Local AI ไม่มั่นใจจะได้ไม่ต้องรอเพิ่ม ~0.5 วิ)
         spec2 = self._stt_pool.submit(second_opinion) if woke and second_opinion is not None else None
         d = self._decide(text, context.strip())
         if d is None:
@@ -1217,7 +1051,7 @@ class Assistant:
         # คุยเหมือนเพื่อน: เรียกชื่อมาแล้ว (หรือกำลังคุยกันอยู่) แต่ไม่ใช่คำสั่งชัดๆ → คุยตอบ แทนการเงียบหรือขอให้พูดใหม่
         clear_command = d.category == "command" and d.conf >= need and any(s.action != "none" for s in d.steps)
         vague_command = d.category == "command" and any(s.action not in ("none", "web_task") for s in d.steps)
-        # กำลังคุยกันอยู่ → คุยตอบ ยกเว้น Jev บอกว่าเป็นเสียงอื่น (ไม่รับ noise แม้ไม่แน่ใจ:
+        # กำลังคุยกันอยู่ → คุยตอบ ยกเว้น Local AI บอกว่าเป็นเสียงอื่น (ไม่รับ noise แม้ไม่แน่ใจ:
         # ตอนเปิดวิดีโอ/เพลง ไมค์ได้ยินเสียงจากลำโพงที่ AEC ไม่รู้จัก แล้วจะไปคุยตอบเสียงในวิดีโอ)
         chat_reply = chatting and d.category != "noise"
         if not clear_command and not vague_command and (woke or chat_reply):
@@ -1229,7 +1063,7 @@ class Assistant:
                 self._handle(retry)
                 return
             if d.chat in CHAT_REPLIES and d.chat_conf >= CHAT_CONF and d.category != "command" and not asks:
-                print(f"  💬 คุยเล่น ({d.chat} {d.chat_conf:.2f}) → ตอบทันทีจาก Jev ไม่ต้องรอ LLM")
+                print(f"  💬 คุยเล่น ({d.chat} {d.chat_conf:.2f}) → ตอบทันทีจาก Local AI ไม่ต้องรอ LLM")
                 self._canned_reply(text, d.chat, early)
                 return
             print("  💬 คุยเล่น/ถามทั่วไป → ตอบแบบเพื่อน")
@@ -1255,7 +1089,7 @@ class Assistant:
             self.last_active = time.monotonic()
             return
         self.misses = 0
-        # คำถามแบบสุภาพ ("ช่วย...ให้หน่อย") ที่ Jev จัดเป็น command แต่ไม่มีคำสั่งที่ทำได้ → ให้ LLM ตอบแทน
+        # คำถามแบบสุภาพ ("ช่วย...ให้หน่อย") ที่ Local AI จัดเป็น command แต่ไม่มีคำสั่งที่ทำได้ → ให้ LLM ตอบแทน
         if d.category == "question" or all(s.action == "none" for s in d.steps):
             self._chat_reply(text, early, early_text)
             return
@@ -1343,15 +1177,10 @@ class Assistant:
             return
         if self._web_agent is None:
             from browser_agent import BackgroundBrowser, BrowserAgent
-            from computer_agent import ComputerAgent, JevComputerAgent
+            from computer_agent import ComputerAgent
             self._web_agent = BrowserAgent(self._agent_chat, BROWSER_PROFILE)
             # ลูกผสม: งานในแอปทั่วไปคุมผ่านจอ ส่วนงานบนเว็บส่งต่อให้ Playwright (เธรดเดียวกัน)
-            if AGENT_BRAIN == "llm":
-                self._pc_agent = ComputerAgent(self._agent_chat, web=self._web_agent, exclude=lambda: self.hud_rect)
-            else:                                   # Jev เลือกขั้นต่อไป (เร็วกว่า LLM ในเครื่อง และไม่ต้องสร้างข้อความ)
-                apps = {k: v for k, v in APP_CRITERIA.items() if k not in SITES}   # เว็บให้ไปทาง web_task
-                self._pc_agent = JevComputerAgent(self.jev.ask_state, apps, chat=self._agent_chat,
-                                                  web=self._web_agent, exclude=lambda: self.hud_rect)
+            self._pc_agent = ComputerAgent(self._agent_chat, web=self._web_agent, exclude=lambda: self.hud_rect)
             if self.background_web:
                 self._web_bg = BackgroundBrowser(self._web_agent)
         request = task
@@ -1435,7 +1264,7 @@ class Assistant:
         except (RuntimeError, requests.RequestException, KeyError, IndexError, TypeError, ValueError) as e:
             print(f"  ❌ LLM ผิดพลาด: {e}")
             return pick("llm_error"), False
-        print(f"  🤖 LLM {LLM_PROVIDER} {LOCAL_LLM_MODEL if LLM_PROVIDER == 'ในเครื่อง' else LLM_MODEL}"
+        print(f"  🤖 LLM {LLM_PROVIDER} {_active_model()}"
               f" · {(time.perf_counter() - t0) * 1000:.0f} ms")
         return (answer, True) if answer else (pick("llm_error"), False)
 
@@ -1940,7 +1769,7 @@ def collapse_repeats(text: str) -> str:
 
 
 def is_garbage(text: str) -> bool:
-    """ข้อความที่ไม่ควรเสียค่าเรียก Jev: สั้นเกิน, ข้อความผีของ Whisper, หรือทวนคำใบ้"""
+    """ข้อความที่ไม่ควรเสียค่าเรียก Local AI: สั้นเกิน, ข้อความผีของ Whisper, หรือทวนคำใบ้"""
     t = normalize(text)
     if len(t) < 2:
         return True
@@ -2227,7 +2056,6 @@ def run_mic(dry_run: bool) -> None:
         signal.signal(sig, signal.default_int_handler)
     watch_launcher()
     check_voice()
-    Jev()                            # เช็คคีย์ก่อนโหลดโมเดลใหญ่ (ไม่มีคีย์จะหยุดตรงนี้)
     print("⏳ กำลังโหลดตัวถอดเสียง ...")
     stt = STT()
     stt.warmup()
@@ -2239,20 +2067,18 @@ def run_mic(dry_run: bool) -> None:
     ears = Ears(speaker)
     assistant = Assistant(speaker, dry_run, background_web=True)
     ears.start()
-    if LLM_PROVIDER == "ในเครื่อง":
-        threading.Thread(target=warm_local_llm, daemon=True).start()
+    threading.Thread(target=warm_local_llm, daemon=True).start()
 
     duplex = ("full duplex + ตัดเสียงสะท้อน (AEC)" if ears.apm is not None and ears.barge_in else
               "full duplex ไม่มี AEC (ควรใส่หูฟัง)" if ears.barge_in else
               "half duplex (ไม่ฟังระหว่างน้องจางพูด)")
-    llm_label = (f"ในเครื่อง · {LOCAL_LLM_MODEL} (ตอบคำถาม + ท่องเว็บ)" if LLM_PROVIDER == "ในเครื่อง" else
-                 f"{LLM_PROVIDER} {LLM_MODEL} · ท่องเว็บ {AGENT_MODEL}" if LLM_KEY else "ยังไม่ได้ตั้งค่า")
+    llm_label = f"LM Studio · {_active_model() or 'ยังไม่มีโมเดลโหลดอยู่'} (Local AI)"
     wake = f"{', '.join(WAKE_WORDS)} (คุยต่อได้ {FOLLOWUP_SEC:.0f} วิโดยไม่ต้องเรียกซ้ำ)" if WAKE_WORDS \
         else "ไม่ใช้ (ฟังทุกประโยค)"
     print(f"""
 ╭─ Jarvis ไทย · น้องจาง ─────────────────────────────────
 │ STT      : {stt.name}{f" · ความเห็นที่สอง {stt.second}" if stt.second else ""}
-│ Jev      : {JEV_MODEL} · CONF_MIN {CONF_MIN:.2f} (คำสั่งเสี่ยง {CONF_RISKY:.2f})
+│ Router   : LM Studio Local AI · CONF_MIN {CONF_MIN:.2f} (คำสั่งเสี่ยง {CONF_RISKY:.2f})
 │ LLM      : {llm_label}
 │ เสียง     : {TTS_VOICE} @ {TTS_RATE}{f" ทุ้ม {TTS_PITCH}" if TTS_PITCH else ""} · {duplex}
 │ คำปลุก    : {wake}{'  · DRY-RUN' if dry_run else ''}
@@ -2605,13 +2431,13 @@ def describe_expected(category: str, expected: list[tuple]) -> str:
 
 
 def run_eval() -> float:
-    jev = Jev()
+    router = LocalDecisionEngine()
     rows = []   # (กลุ่ม, ถูกไหม, conf, ต่ำกว่าเกณฑ์ไหม, ms, tokens)
     for i, (group, text, category, expected) in enumerate(EVAL_CASES, 1):
         print(f"\n[{i:02d}/{len(EVAL_CASES)}] {group} · 「{text}」")
         try:
-            d = jev.decide(strip_wake(text))     # ตัดคำปลุกเหมือนตอนใช้งานจริง
-        except JevError as e:
+            d = router.decide(strip_wake(text))     # ตัดคำปลุกเหมือนตอนใช้งานจริง
+        except LocalDecisionError as e:
             print(f"❌ {e}")
             rows.append((group, False, 0.0, True, 0.0, 0))
             continue
@@ -2632,8 +2458,7 @@ def run_eval() -> float:
     print(f"conf เฉลี่ย  : {sum(r[2] for r in rows) / n:.2f}")
     print(f"ต่ำกว่าเกณฑ์ : {sum(r[3] for r in rows)} ประโยค (CONF_MIN {CONF_MIN:.2f}, คำสั่งเสี่ยง {CONF_RISKY:.2f})")
     print(f"ถูกและผ่านเกณฑ์: {sum(r[1] and not r[3] for r in rows)}/{n}")
-    print(f"Jev เฉลี่ย  : {sum(r[4] for r in rows) / n:.0f} ms ต่อประโยค · {tokens} tokens "
-          f"(≈ ${tokens * JEV_PRICE_PER_MTOK / 1e6:.5f})")
+    print(f"Local AI เฉลี่ย: {sum(r[4] for r in rows) / n:.0f} ms ต่อประโยค")
     print("═" * 60)
     return accuracy
 
@@ -2659,7 +2484,7 @@ def main() -> None:
             run_wav(args.wav, args.dry_run)
         else:
             run_mic(args.dry_run)
-    except JevError as e:
+    except LocalDecisionError as e:
         sys.exit(f"❌ {e}")
 
 
