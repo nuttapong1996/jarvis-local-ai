@@ -234,6 +234,28 @@ HALLUCINATIONS = ("ขอบคุณที่รับชม", "ขอบคุ
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
 
+# ค่าที่ผู้ใช้ปรับจากเมนูคลิกขวาใน Dock แยกจาก .env เพื่อไม่ให้การอัปเดตโค้ด
+# หรือการตั้งค่าเชิงเทคนิคไปทับสิ่งที่ตั้งไว้ในแอป
+SETTINGS_FILE = ROOT / ".jarvis-settings.json"
+
+
+def load_user_settings() -> dict:
+    try:
+        data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+USER_SETTINGS = load_user_settings()
+# ให้หน้าต่างตั้งค่ามีความสำคัญกว่า .env เพื่อให้ผู้ใช้ไม่ต้องแก้ไฟล์เอง
+for _setting, _env in (("assistant_name", "ASSISTANT_NAME"),
+                       ("user_name", "USER_NAME"),
+                       ("chrome_profile", "CHROME_PROFILE")):
+    _value = USER_SETTINGS.get(_setting)
+    if isinstance(_value, str) and _value.strip():
+        os.environ[_env] = _value.strip()
+
 
 def env_str(name: str, default: str = "") -> str:
     return (os.getenv(name) or "").strip() or default
@@ -314,6 +336,7 @@ HUD = env_str("HUD", "on").lower() not in ("off", "0", "no")           # หน�
 
 # ชื่อผู้ช่วยและคำปลุก ปรับได้จาก .env โดยไม่ต้องแก้ source
 ASSISTANT_NAME = env_str("ASSISTANT_NAME", "Jarvis")
+USER_NAME = env_str("USER_NAME", "")
 _wake = env_str("WAKE_WORD", f"{ASSISTANT_NAME},ผู้ช่วย")
 WAKE_WORDS = [] if _wake.lower() in ("off", "none", "-") else [w.strip() for w in _wake.split(",") if w.strip()]
 
@@ -611,6 +634,37 @@ class Decision:
 APP_CRITERIA = {name: v[1] for name, v in (APPS | SITES | EXTRA_APPS).items()}
 
 
+def _command_key(text: str) -> str:
+    """เทียบคำสั่งที่ผู้ใช้ตั้งเองแบบไม่สนช่องว่าง/ตัวพิมพ์."""
+    return re.sub(r"\s+", " ", text.strip()).casefold()
+
+
+def custom_command_decision(text: str) -> Decision | None:
+    """คืนคำสั่งที่ผู้ใช้เพิ่มเอง โดยยังจำกัด action ไว้ใน allow-list ของโปรแกรม."""
+    commands = USER_SETTINGS.get("commands", [])
+    if not isinstance(commands, list):
+        return None
+    spoken = _command_key(text)
+    for item in commands[:100]:
+        if not isinstance(item, dict) or _command_key(str(item.get("phrase", ""))) != spoken:
+            continue
+        action, app = str(item.get("action", "")), str(item.get("app", "none"))
+        if action not in ACTIONS or action == "none":
+            continue
+        if action in APP_ACTIONS and app not in APP_CRITERIA:
+            continue
+        volume = item.get("volume")
+        if action == "volume_set":
+            try:
+                volume = max(0, min(100, int(volume)))
+            except (TypeError, ValueError):
+                continue
+        else:
+            volume = None
+        return Decision(text, "command", 1.0, steps=[Step(action, app, volume, 1.0)])
+    return None
+
+
 def _json_object(text: str) -> dict:
     text = (text or "").strip()
     if text.startswith("```"):
@@ -629,6 +683,10 @@ def _json_object(text: str) -> dict:
 
 class LocalDecisionEngine:
     def decide(self, text: str, extra: str = "") -> Decision:
+        custom = custom_command_decision(text)
+        if custom is not None:
+            print(f"  ⚙️  คำสั่งที่ตั้งเอง · {describe(custom)}")
+            return custom
         actions = list(ACTIONS)
         apps = list(APP_CRITERIA)
         chats = list(CHAT_INTENTS)
@@ -818,7 +876,16 @@ def host_app() -> str:
 
 
 def music_player() -> str:
-    """ใช้ Spotify ถ้ามี ไม่งั้นใช้ Music ของ Apple (สคริปต์อ้าง Spotify จะ compile ไม่ผ่านถ้าไม่ได้ติดตั้ง)"""
+    """เลือกแอปเพลงที่ตั้งไว้; Auto ให้แอปที่เปิดอยู่ (รวม Chrome) มาก่อน."""
+    chosen = str(USER_SETTINGS.get("music_player", "auto")).strip()
+    if chosen in {"Spotify", "Music", "Google Chrome"}:
+        if app_installed(chosen):
+            return chosen
+        print(f"  ⚠️  แอปเพลงที่เลือก ({chosen}) ไม่มีในเครื่อง — ใช้ตัวที่หาได้แทน")
+    # กรณีไม่ได้ระบุแอป: ให้คุมตัวที่ผู้ใช้กำลังใช้ฟังอยู่ก่อน ไม่ใช่เปิด Spotify ใหม่ทับ Chrome
+    for player in ("Spotify", "Music", "Google Chrome"):
+        if app_running(player):
+            return player
     return "Spotify" if app_installed("Spotify") else "Music"
 
 
@@ -868,6 +935,13 @@ def make_plan(step: Step) -> Plan:
 
     if a.startswith("music_"):
         player = music_player()
+        if player == "Google Chrome":
+            if not app_running(player):
+                return Plan("ยังไม่ได้เปิด Chrome ที่มีเพลงอยู่นะ")
+            # Chrome รับ media key ของ macOS ผ่าน Media Session API (YouTube, YouTube Music, Spotify Web ฯลฯ)
+            # จึงคุมแท็บเพลงได้โดยไม่ต้องรู้ว่าเป็นเว็บไหน
+            media_key = {"music_play": 16, "music_pause": 16, "music_next": 17, "music_previous": 18}[a]
+            return Plan(pick(a), [osa(f'tell application "System Events" to key code {media_key}')])
         verb = {"music_play": "play", "music_pause": "pause",
                 "music_next": "next track", "music_previous": "previous track"}[a]
         if a != "music_play" and not app_running(player):
@@ -955,7 +1029,7 @@ def save_utterance(audio: np.ndarray, text: str) -> None:
 
 LLM_SYSTEM_PROMPT = f"""คุณคือ "{ASSISTANT_NAME}" ผู้ช่วยเสียงบนเครื่อง Mac ของผู้ใช้ เป็นผู้ชาย คุยกับผู้ใช้เหมือนเพื่อนสนิท เป็นกันเอง ตอบไว
 - ตอบสั้นมาก 1-2 ประโยค เหมือนคุยโทรศัพท์กับเพื่อน ตอบตรงคำถามก่อนเสมอ
-- แทนตัวเองว่า "เรา" เท่านั้น (ห้ามใช้ "ฉัน" "ดิฉัน" "ผม") เรียกผู้ใช้ว่า "นาย" หรือไม่ต้องใช้สรรพนาม
+- แทนตัวเองว่า "เรา" เท่านั้น (ห้ามใช้ "ฉัน" "ดิฉัน" "ผม") เรียกผู้ใช้ว่า "{USER_NAME}" ถ้าตั้งชื่อไว้ ไม่เช่นนั้นใช้ "นาย" หรือไม่ต้องใช้สรรพนาม
 - ลงท้ายด้วย "นะ" "อะ" "ครับ" ตามธรรมชาติ สุภาพแบบเพื่อน ห้ามใช้คำหยาบ ห้ามใช้ "กู" "มึง"
 - ไม่ต้องถามกลับทุกครั้ง ถามต่อเฉพาะตอนที่ชวนคุยได้จริงหรือคำตอบยังไม่ครบ
 - ถ้าผู้ใช้หงุดหงิดหรือบ่นว่าเราทำไม่ได้ ให้ขอโทษสั้นๆ อย่างจริงใจ แล้วถามว่าจะให้ช่วยอะไร ไม่ต้องเล่นมุก
@@ -2178,10 +2252,27 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
         print("ℹ️  ไม่มี PyObjC — ไม่แสดงไอคอนบนแถบเมนู (pip install pyobjc-framework-Cocoa)")
         return False
 
-    symbols = {"off": "mic.slash.fill", "web": "globe", "control": "cursorarrow.click.2", "speak": "waveform",
-               "think": "ellipsis.circle", "listen": "mic.fill"}
     labels = {"off": "ปิดการฟังอยู่", "web": "กำลังท่องเว็บ…", "control": "กำลังคุมเครื่อง…", "speak": "กำลังพูด…",
               "think": "กำลังคิด…", "listen": f"กำลังฟัง — เรียก \"{ASSISTANT_NAME}\" ได้เลย"}
+
+    def jarvis_mark():
+        """ตรา Jarvis แบบ template: ระบบจะปรับเป็นขาว/ดำให้เข้ากับ menubar เอง."""
+        size = AppKit.NSMakeSize(18, 18)
+        image = AppKit.NSImage.alloc().initWithSize_(size)
+        image.lockFocus()
+        AppKit.NSColor.blackColor().setStroke()
+        # วงแหวนพลังงานและแกนกลาง: อ่านออกชัดแม้ที่ขนาด 18 pt
+        for inset, width in ((1.5, 1.45), (5.0, 1.25)):
+            path = AppKit.NSBezierPath.bezierPathWithOvalInRect_(AppKit.NSMakeRect(inset, inset, 18 - inset * 2, 18 - inset * 2))
+            path.setLineWidth_(width)
+            path.stroke()
+        AppKit.NSColor.blackColor().setFill()
+        AppKit.NSBezierPath.bezierPathWithOvalInRect_(AppKit.NSMakeRect(7.0, 7.0, 4.0, 4.0)).fill()
+        image.unlockFocus()
+        image.setTemplate_(True)
+        return image
+
+    menubar_icon = jarvis_mark()
 
     def current_state() -> str:
         job = assistant.job
@@ -2203,6 +2294,124 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
                 self.hud.set_pinned(not self.hud.pinned)
                 self.refresh_(None)
 
+        def settings_(self, sender):
+            """หน้าต่างตั้งค่าที่เข้าถึงได้จากคลิกขวา Dock และเมนูด้านบน."""
+            if getattr(self, "settings_window", None) is not None:
+                self.settings_window.makeKeyAndOrderFront_(None)
+                app.activateIgnoringOtherApps_(True)
+                return
+
+            def label(title, x, y, width=150):
+                view = AppKit.NSTextField.labelWithString_(title)
+                view.setFrame_(AppKit.NSMakeRect(x, y, width, 22))
+                return view
+
+            def field(value, x, y, width):
+                view = AppKit.NSTextField.alloc().initWithFrame_(AppKit.NSMakeRect(x, y, width, 24))
+                view.setStringValue_(value)
+                return view
+
+            style = AppKit.NSWindowStyleMaskTitled | AppKit.NSWindowStyleMaskClosable
+            win = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+                AppKit.NSMakeRect(0, 0, 680, 510), style, AppKit.NSBackingStoreBuffered, False)
+            win.setTitle_(f"การตั้งค่า {ASSISTANT_NAME}")
+            win.center()
+            content = win.contentView()
+            content.addSubview_(label("ชื่อผู้ใช้ (ให้ Jarvis เรียกคุณ)", 24, 462, 220))
+            self.settings_name = field(str(USER_SETTINGS.get("user_name", USER_NAME)), 250, 460, 400)
+            content.addSubview_(self.settings_name)
+
+            content.addSubview_(label("โปรไฟล์ Google Chrome", 24, 422, 220))
+            self.settings_chrome = AppKit.NSPopUpButton.alloc().initWithFrame_pullsDown_(
+                AppKit.NSMakeRect(250, 420, 400, 26), False)
+            self.settings_chrome.addItemWithTitle_("ใช้โปรไฟล์ล่าสุดของ Chrome")
+            try:
+                state = json.loads((Path.home() / "Library/Application Support/Google/Chrome/Local State").read_text())
+                profiles = state.get("profile", {}).get("info_cache", {})
+                for folder, info in sorted(profiles.items(), key=lambda pair: str(pair[1].get("name", pair[0])).casefold()):
+                    name = str(info.get("name", folder))
+                    self.settings_chrome.addItemWithTitle_(f"{name}  ({folder})")
+                    self.settings_chrome.lastItem().setRepresentedObject_(folder)
+            except (OSError, ValueError):
+                pass
+            desired = str(USER_SETTINGS.get("chrome_profile", "")).strip()
+            for index in range(self.settings_chrome.numberOfItems()):
+                item = self.settings_chrome.itemAtIndex_(index)
+                if str(item.representedObject() or "") == desired:
+                    self.settings_chrome.selectItemAtIndex_(index)
+                    break
+            content.addSubview_(self.settings_chrome)
+
+            content.addSubview_(label("แอปสำหรับเปิดเพลง", 24, 382, 220))
+            self.settings_music = AppKit.NSPopUpButton.alloc().initWithFrame_pullsDown_(
+                AppKit.NSMakeRect(250, 380, 400, 26), False)
+            self.settings_music.addItemsWithTitles_(["อัตโนมัติ (แอปที่เปิดอยู่ก่อน)", "Spotify", "Music", "Google Chrome"])
+            selected_music = str(USER_SETTINGS.get("music_player", "auto"))
+            self.settings_music.selectItemAtIndex_({"auto": 0, "Spotify": 1, "Music": 2, "Google Chrome": 3}.get(selected_music, 0))
+            content.addSubview_(self.settings_music)
+
+            content.addSubview_(label("คำสั่งส่วนตัว (JSON)", 24, 342, 220))
+            hint = label('ตัวอย่าง: [{"phrase":"เปิดงาน","action":"open_app","app":"Slack"}]', 250, 342, 410)
+            hint.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+            hint.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+            content.addSubview_(hint)
+            scroll = AppKit.NSScrollView.alloc().initWithFrame_(AppKit.NSMakeRect(24, 105, 632, 225))
+            scroll.setHasVerticalScroller_(True)
+            self.settings_commands = AppKit.NSTextView.alloc().initWithFrame_(scroll.bounds())
+            self.settings_commands.setFont_(AppKit.NSFont.monospacedSystemFontOfSize_weight_(12, 0))
+            self.settings_commands.setString_(json.dumps(USER_SETTINGS.get("commands", []), ensure_ascii=False, indent=2))
+            scroll.setDocumentView_(self.settings_commands)
+            content.addSubview_(scroll)
+            note = label("ใช้ได้เฉพาะ action ที่แอปรองรับ เช่น open_app, music_play, volume_set; บันทึกแล้วปิด-เปิด Jarvis ใหม่", 24, 75, 630)
+            note.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+            note.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+            content.addSubview_(note)
+            save = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(555, 25, 100, 32))
+            save.setTitle_("บันทึก")
+            save.setBezelStyle_(AppKit.NSBezelStyleRounded)
+            save.setTarget_(self)
+            save.setAction_("saveSettings:")
+            content.addSubview_(save)
+            self.settings_window = win
+            win.makeKeyAndOrderFront_(None)
+            app.activateIgnoringOtherApps_(True)
+
+        def saveSettings_(self, sender):
+            try:
+                commands = json.loads(str(self.settings_commands.string()))
+                if not isinstance(commands, list):
+                    raise ValueError("คำสั่งส่วนตัวต้องเป็นรายการ JSON (เริ่มด้วย [ และจบด้วย ])")
+                if len(commands) > 100 or any(not isinstance(c, dict) for c in commands):
+                    raise ValueError("แต่ละคำสั่งต้องเป็น object และมีได้ไม่เกิน 100 รายการ")
+            except (ValueError, json.JSONDecodeError) as exc:
+                alert = AppKit.NSAlert.alloc().init()
+                alert.setMessageText_("บันทึกคำสั่งไม่ได้")
+                alert.setInformativeText_(str(exc))
+                alert.runModal()
+                return
+            item = self.settings_chrome.selectedItem()
+            profile = str(item.representedObject() or "") if item is not None else ""
+            music = ["auto", "Spotify", "Music", "Google Chrome"][self.settings_music.indexOfSelectedItem()]
+            saved = {"user_name": str(self.settings_name.stringValue()).strip(),
+                     "chrome_profile": profile, "music_player": music, "commands": commands}
+            try:
+                SETTINGS_FILE.write_text(json.dumps(saved, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            except OSError as exc:
+                alert = AppKit.NSAlert.alloc().init()
+                alert.setMessageText_("บันทึกการตั้งค่าไม่ได้")
+                alert.setInformativeText_(str(exc))
+                alert.runModal()
+                return
+            USER_SETTINGS.clear()
+            USER_SETTINGS.update(saved)
+            os.environ["CHROME_PROFILE"] = profile
+            self.settings_window.close()
+            self.settings_window = None
+            alert = AppKit.NSAlert.alloc().init()
+            alert.setMessageText_("บันทึกแล้ว")
+            alert.setInformativeText_("ให้ปิดแล้วเปิด Jarvis ใหม่หนึ่งครั้งเพื่อใช้ชื่อและคำสั่งที่ตั้งไว้ทั้งหมด")
+            alert.runModal()
+
         def quit_(self, sender):
             # ปุ่มออกของ AppKit จะปิดโปรเซสทันที (ไม่ผ่าน finally) → เก็บกวาดเองก่อน
             # ไม่งั้นเซิร์ฟเวอร์ LLM ในเครื่องค้างกินแรม ~2.5 GB และตำแหน่ง HUD ไม่ถูกบันทึก
@@ -2210,6 +2419,11 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
                 self.hud.save()
             shutdown(ears)
             AppHelper.stopEventLoop()
+
+        def applicationShouldTerminate_(self, sender):
+            # Dock > Quit ต้องเก็บกวาดเหมือนเมนูออกจากแถบด้านบนด้วย
+            self.quit_(None)
+            return AppKit.NSTerminateNow
 
         def tick_(self, timer):                      # 20 ครั้ง/วิ: ส่งสถานะ + ความดังเสียงให้ HUD
             if self.hud is not None:
@@ -2219,9 +2433,7 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
             state = current_state()
             if state != getattr(self, "state", None):
                 self.state = state
-                image = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(symbols[state], labels[state])
-                image.setTemplate_(True)                 # สีตามธีมของแถบเมนูอัตโนมัติ
-                self.item.button().setImage_(image)
+                self.item.button().setImage_(menubar_icon)
                 self.item.button().setToolTip_(f"{ASSISTANT_NAME}: {labels[state]}")
                 self.status.setTitle_(labels[state])
             self.toggle.setTitle_("เริ่มฟัง" if state == "off" else "หยุดฟัง")
@@ -2232,8 +2444,10 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
             self.heard.setTitle_(f"ได้ยินล่าสุด: {heard or '-'}")
 
     app = AppKit.NSApplication.sharedApplication()
-    app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)   # ไม่มีไอคอนใน Dock
+    # ต้องเป็น Regular เพื่อให้ไอคอนอยู่ใน Dock และมี context menu ตอนคลิกขวา
+    app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyRegular)
     ctl = Controller.alloc().init()
+    app.setDelegate_(ctl)
     ctl.item = AppKit.NSStatusBar.systemStatusBar().statusItemWithLength_(AppKit.NSVariableStatusItemLength)
     menu = AppKit.NSMenu.alloc().init()
     menu.setAutoenablesItems_(False)
@@ -2246,11 +2460,20 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
     ctl.status, ctl.heard = add(""), add("")
     menu.addItem_(AppKit.NSMenuItem.separatorItem())
     ctl.toggle = add("หยุดฟัง", "toggle:")
+    add("การตั้งค่า…", "settings:", ",")
     ctl.hud_toggle = add("ซ่อน J.A.R.V.I.S", "toggleHud:")
     ctl.pin = add("ปักหมุด J.A.R.V.I.S ไว้บนสุด", "togglePin:")
     menu.addItem_(AppKit.NSMenuItem.separatorItem())
     add(f"ออกจาก{ASSISTANT_NAME}", "quit:", "q")
     ctl.item.setMenu_(menu)
+
+    dock_menu = AppKit.NSMenu.alloc().init()
+    dock_settings = dock_menu.addItemWithTitle_action_keyEquivalent_("การตั้งค่า…", "settings:", "")
+    dock_settings.setTarget_(ctl)
+    dock_menu.addItem_(AppKit.NSMenuItem.separatorItem())
+    dock_toggle = dock_menu.addItemWithTitle_action_keyEquivalent_("เริ่ม/หยุดฟัง", "toggle:", "")
+    dock_toggle.setTarget_(ctl)
+    app.setDockMenu_(dock_menu)
 
     ctl.hud = None
     if HUD:
@@ -2266,7 +2489,7 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
     NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(0.05, ctl, "tick:", None, True)
 
     threading.Thread(target=listen_loop, daemon=True).start()
-    print("🎛  มีไอคอนไมค์บนแถบเมนูด้านบน" + (" และ J.A.R.V.I.S บนจอ (ลากย้ายได้ · ดับเบิลคลิก = หยุด/เริ่มฟัง"
+    print("🎛  มีไอคอน J.A.R.V.I.S บนแถบเมนูด้านบน" + (" และ J.A.R.V.I.S บนจอ (ลากย้ายได้ · ดับเบิลคลิก = หยุด/เริ่มฟัง"
                                                   " · คลิกขวา = เมนู)" if ctl.hud else ""))
     # Ctrl+C / ปิดแท็บเทอร์มินัล → ออกแบบเก็บกวาด (ตัวดักของ PyObjC ไม่ทำงานเมื่อไม่มี Dock icon)
     # ตัวจับเวลา tick ทำให้เธรดหลักรันโค้ด Python ทุก 50 ms ตัวดักสัญญาณจึงถูกเรียกทันเวลา

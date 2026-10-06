@@ -125,16 +125,26 @@ def user_chrome_cmd(url: str | None = None) -> list[str]:
     (ไม่ไปโผล่ใน Chrome โปรไฟล์แยกของเอเจนต์เว็บ) · ตั้ง CHROME_PROFILE=ชื่อหรือโฟลเดอร์โปรไฟล์ เพื่อบังคับได้"""
     import os
     profile = ""
+    want = os.environ.get("CHROME_PROFILE", "").strip()
     try:
         state = json.loads((Path.home() / "Library/Application Support/Google/Chrome/Local State").read_text())
         info = state.get("profile", {}).get("info_cache", {})
-        want = os.environ.get("CHROME_PROFILE", "").strip()
         if want:
-            profile = next((d for d, v in info.items() if want in (d, v.get("name"))), "")
+            # ผู้ใช้มักใส่ชื่อที่เห็นในหน้าเลือกโปรไฟล์ เช่น "NOMAD" แต่ Chrome
+            # เก็บชื่อโฟลเดอร์จริงเป็น "Default" / "Profile 1" จึงต้องแปลงจาก Local State
+            # และไม่ควรแพ้แค่ตัวพิมพ์เล็ก/ใหญ่ต่างกัน
+            needle = want.casefold()
+            profile = next((d for d, v in info.items()
+                            if needle in (d.casefold(), str(v.get("name", "")).casefold())), "")
+            if not profile:
+                print(f"  ⚠️  ไม่พบ Chrome profile '{want}' — จะใช้โปรไฟล์ล่าสุดแทน")
         profile = profile or state.get("profile", {}).get("last_used", "") or \
             max(info, key=lambda d: info[d].get("active_time", 0), default="")
-    except (OSError, ValueError):
-        pass
+    except (OSError, ValueError) as exc:
+        # ถ้าอ่าน Local State ไม่ได้ อย่าส่ง --profile-directory ที่เดาเอา เพราะ Chrome
+        # อาจสร้างโปรไฟล์ว่างใหม่; log นี้บอกสาเหตุที่ตั้ง CHROME_PROFILE แล้วไม่เกิดผล
+        if want:
+            print(f"  ⚠️  อ่านรายชื่อ Chrome profile ไม่ได้ ({exc}) — เปิด Chrome ตามโปรไฟล์ล่าสุด")
     args = ([f"--profile-directory={profile}"] if profile else []) + ([url] if url else [])
     return ["open", "-na", "Google Chrome"] + (["--args", *args] if args else [])
 

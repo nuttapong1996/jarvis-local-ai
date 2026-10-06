@@ -11,6 +11,7 @@ __pycache__/
 .browser-profile/
 recordings/
 .hud.json
+.jarvis-settings.json
 
 # แอปที่ build จาก macos/build_app.sh และ log ของแอป
 Jarvis.app/
