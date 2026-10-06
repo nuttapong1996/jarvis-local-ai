@@ -931,7 +931,8 @@ def music_player() -> str:
             return chosen
         print(f"  ⚠️  แอปเพลงที่เลือก ({chosen}) ไม่มีในเครื่อง — ใช้ตัวที่หาได้แทน")
     # กรณีไม่ได้ระบุแอป: ให้คุมตัวที่ผู้ใช้กำลังใช้ฟังอยู่ก่อน ไม่ใช่เปิด Spotify ใหม่ทับ Chrome
-    for player in ("Spotify", "Music", "Google Chrome"):
+    # เว็บเพลงที่เปิดอยู่ใน Chrome ควรได้สิทธิ์ก่อน Apple Music ที่อาจเปิดค้างไว้
+    for player in ("Google Chrome", "Spotify", "Music"):
         if app_running(player):
             return player
     return "Spotify" if app_installed("Spotify") else "Music"
@@ -984,8 +985,15 @@ def make_plan(step: Step) -> Plan:
     if a.startswith("music_"):
         player = music_player()
         if player == "Google Chrome":
+            if a == "music_play":
+                # "เปิดเพลง" ต้องเปิดเว็บเพลง ไม่ใช่ส่งปุ่ม play ให้แท็บที่ยังไม่มีเพลง
+                # user_chrome_cmd ใช้ CHROME_PROFILE ที่เลือกไว้ (เช่น NOMAD) หรือ profile ล่าสุด
+                # จึงไม่ปะปนกับ Chrome โปรไฟล์แยกของเอเจนต์เว็บ
+                from computer_agent import user_chrome_cmd
+                return Plan("เปิดยูทูบใน Chrome ให้แล้วนะ", [user_chrome_cmd("https://www.youtube.com/")],
+                            fail_reply="เปิดยูทูบใน Chrome ไม่ได้ครับ")
             if not app_running(player):
-                return Plan("ยังไม่ได้เปิด Chrome ที่มีเพลงอยู่นะ")
+                return Plan("ตอนนี้ยังไม่ได้เปิด Chrome ที่มีเพลงอยู่นะ")
             # Chrome รับ media key ของ macOS ผ่าน Media Session API (YouTube, YouTube Music, Spotify Web ฯลฯ)
             # จึงคุมแท็บเพลงได้โดยไม่ต้องรู้ว่าเป็นเว็บไหน
             media_key = {"music_play": 16, "music_pause": 16, "music_next": 17, "music_previous": 18}[a]
