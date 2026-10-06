@@ -240,6 +240,7 @@ SETTINGS_FILE = ROOT / ".jarvis-settings.json"
 # NSMenu เก็บ target แบบ weak reference; เก็บ Python proxy ไว้ตลอดอายุแอป
 # ป้องกัน PyObjC ส่ง action ไปยัง object ที่ถูกเก็บกวาดแล้ว (SIGTRAP บน macOS รุ่นใหม่).
 _APPKIT_KEEPALIVE: list[object] = []
+CHROME_PROFILE_SCAN_STATUS = ""
 
 
 def load_user_settings() -> dict:
@@ -258,7 +259,9 @@ def chrome_profiles() -> list[tuple[str, str]]:
     ทุกโฟลเดอร์ที่มีไฟล์ Preferences เป็นโปรไฟล์ แล้วอ่านชื่อจาก Local State
     หรือ Preferences ตามลำดับ.
     """
+    global CHROME_PROFILE_SCAN_STATUS
     root = Path.home() / "Library/Application Support/Google/Chrome"
+    CHROME_PROFILE_SCAN_STATUS = ""
 
     def read_json(path: Path) -> dict:
         try:
@@ -267,13 +270,20 @@ def chrome_profiles() -> list[tuple[str, str]]:
         except (OSError, ValueError, TypeError):
             return {}
 
+    if not root.exists():
+        CHROME_PROFILE_SCAN_STATUS = "ไม่พบโฟลเดอร์ข้อมูล Google Chrome ในเครื่อง"
+        return []
     state = read_json(root / "Local State")
     cache = state.get("profile", {}).get("info_cache", {})
     cache = cache if isinstance(cache, dict) else {}
     found: list[tuple[str, str]] = []
     try:
         folders = sorted((child for child in root.iterdir() if child.is_dir()), key=lambda child: child.name.casefold())
-    except OSError:
+    except PermissionError:
+        CHROME_PROFILE_SCAN_STATUS = "Jarvis ยังไม่มีสิทธิ์อ่านข้อมูล Chrome (Full Disk Access)"
+        return []
+    except OSError as exc:
+        CHROME_PROFILE_SCAN_STATUS = f"อ่านโฟลเดอร์ข้อมูล Chrome ไม่ได้: {exc.strerror or exc}"
         return []
     for folder in folders:
         # System Profile ไม่มีข้อมูลผู้ใช้ และ Guest Profile เปิดผ่าน --profile-directory ไม่ได้เสมอไป
@@ -286,6 +296,8 @@ def chrome_profiles() -> list[tuple[str, str]]:
         profile_data = profile_data if isinstance(profile_data, dict) else {}
         name = str(info.get("name") or profile_data.get("name") or folder.name).strip() or folder.name
         found.append((name, folder.name))
+    if not found:
+        CHROME_PROFILE_SCAN_STATUS = "ไม่พบโฟลเดอร์โปรไฟล์ Chrome ที่อ่านได้"
     return sorted(found, key=lambda item: (item[0].casefold(), item[1].casefold()))
 
 
@@ -2458,16 +2470,23 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
 
             content.addSubview_(label("โปรไฟล์ Google Chrome", 24, 562, 220))
             self.settings_chrome = AppKit.NSPopUpButton.alloc().initWithFrame_pullsDown_(
-                AppKit.NSMakeRect(250, 560, 385, 26), False)
+                AppKit.NSMakeRect(250, 560, 300, 26), False)
             self.reload_chrome_profiles()
             content.addSubview_(self.settings_chrome)
-            refresh_profiles = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(645, 558, 85, 30))
+            refresh_profiles = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(560, 558, 80, 30))
             refresh_profiles.setTitle_("รีเฟรช")
             refresh_profiles.setBezelStyle_(AppKit.NSBezelStyleRounded)
             refresh_profiles.setToolTip_("สแกนรายชื่อโปรไฟล์ Google Chrome ในเครื่องใหม่")
             refresh_profiles.setTarget_(self)
             refresh_profiles.setAction_("refreshChromeProfiles:")
             content.addSubview_(refresh_profiles)
+            permissions = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(648, 558, 82, 30))
+            permissions.setTitle_("สิทธิ์ไฟล์")
+            permissions.setBezelStyle_(AppKit.NSBezelStyleRounded)
+            permissions.setToolTip_("เปิด System Settings เพื่ออนุญาต Full Disk Access ให้ Jarvis")
+            permissions.setTarget_(self)
+            permissions.setAction_("openFilePermissions:")
+            content.addSubview_(permissions)
 
             content.addSubview_(label("แอปสำหรับเปิดเพลง", 24, 522, 220))
             self.settings_music = AppKit.NSPopUpButton.alloc().initWithFrame_pullsDown_(
@@ -2504,6 +2523,7 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
             self.settings_feedback.setTextColor_(AppKit.NSColor.secondaryLabelColor())
             self.settings_feedback.setFont_(AppKit.NSFont.systemFontOfSize_(11))
             content.addSubview_(self.settings_feedback)
+            self.reload_chrome_profiles()
             save = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(630, 22, 100, 32))
             save.setTitle_("บันทึก")
             save.setBezelStyle_(AppKit.NSBezelStyleRounded)
@@ -2529,11 +2549,17 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
             if hasattr(self, "settings_feedback"):
                 self.settings_feedback.setStringValue_(
                     f"พบโปรไฟล์ Chrome {len(profiles)} โปรไฟล์" if profiles else
+                    CHROME_PROFILE_SCAN_STATUS or
                     "ไม่พบโปรไฟล์ Chrome — โปรดเปิด Google Chrome อย่างน้อยหนึ่งครั้ง แล้วกดรีเฟรช")
 
         def refreshChromeProfiles_(self, sender):
             current = self.chrome_profile_values[self.settings_chrome.indexOfSelectedItem()]
             self.reload_chrome_profiles(current)
+
+        def openFilePermissions_(self, sender):
+            """พาไปหน้าที่ผู้ใช้เพิ่ม Jarvis ในรายการ Full Disk Access ได้."""
+            subprocess.run(["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"],
+                           capture_output=True, text=True)
 
         def reload_command_editor(self):
             """ฟอร์มแก้ไขคำสั่งแบบแถว ไม่ต้องพิมพ์ JSON."""
