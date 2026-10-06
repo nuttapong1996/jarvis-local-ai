@@ -1,7 +1,7 @@
 """
-น้องจางท่องเว็บ — เอเจนต์เล็กๆ ที่ให้ LLM (tool calling แบบ OpenAI) ขับเบราว์เซอร์จริงด้วย Playwright
+ผู้ช่วยท่องเว็บ — เอเจนต์เล็กๆ ที่ให้ LLM (tool calling แบบ OpenAI) ขับเบราว์เซอร์จริงด้วย Playwright
 
-- เปิด Google Chrome หน้าต่างจริงให้ผู้ใช้เห็น ใช้โปรไฟล์แยกของน้องจางเอง (.browser-profile)
+- เปิด Google Chrome หน้าต่างจริงให้ผู้ใช้เห็น ใช้โปรไฟล์แยกของผู้ช่วยเอง (.browser-profile)
   แล้วเชื่อมต่อผ่าน CDP → ปิดโปรแกรมแล้วหน้าเว็บยังเปิดค้างไว้ให้ดูต่อ
 - LLM เห็นหน้าเว็บเป็น "รายการปุ่ม/ลิงก์ที่มีเลขกำกับ + ข้อความในหน้า" แล้วเรียกเครื่องมือ
   open_url / search / click / type_text / scroll / back / finish
@@ -15,6 +15,7 @@ jarvis.py เรียกใช้ผ่าน BrowserAgent.run() (บล็อ�
 from __future__ import annotations
 
 import json
+import os
 import queue
 import re
 import socket
@@ -31,7 +32,9 @@ MAX_STEPS = 15
 TASK_TIMEOUT = 180          # วินาที
 SNAPSHOT_CHARS = 4000       # งบตัวอักษรของหน้าเว็บต่อหนึ่งขั้น (หลังตัดขยะแล้ว 4000 ครอบคลุมเท่า 6000 เดิม)
 
-SYSTEM_PROMPT = """You are the web agent of น้องจาง, a Thai voice assistant on the user's Mac.
+ASSISTANT_NAME = os.getenv("ASSISTANT_NAME", "Jarvis").strip() or "Jarvis"
+
+SYSTEM_PROMPT = f"""You are the web agent of {ASSISTANT_NAME}, a Thai voice assistant on the user's Mac.
 You control a real Google Chrome window with the tools to complete the user's Thai request.
 
 How to work:
@@ -434,7 +437,7 @@ def _ensure_window(port: int) -> None:
 
 
 def _kill_our_chrome(profile_dir: Path) -> None:
-    """ปิด Chrome ที่เปิดด้วยโปรไฟล์ของน้องจางเท่านั้น (ไม่แตะ Chrome ส่วนตัวของผู้ใช้)"""
+    """ปิด Chrome ที่เปิดด้วยโปรไฟล์ของผู้ช่วยเท่านั้น (ไม่แตะ Chrome ส่วนตัวของผู้ใช้)"""
     out = subprocess.run(["pgrep", "-f", f"--user-data-dir={profile_dir}"], capture_output=True, text=True).stdout
     for pid in out.split():
         subprocess.run(["kill", pid], capture_output=True)

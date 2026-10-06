@@ -6,7 +6,7 @@ sounddevice>=0.5
 
 # ── full duplex: ตรวจจับเสียงพูด + ตัดเสียงสะท้อน ────────────
 pysilero-vad>=3.4,<4            # Silero VAD แบบเบา ไม่ต้องใช้ torch/onnxruntime
-livekit>=1.1.20,<2              # WebRTC AEC (rtc.AudioProcessingModule) ตัดเสียงน้องจางที่ย้อนเข้าไมค์
+livekit>=1.1.20,<2              # WebRTC AEC (rtc.AudioProcessingModule) ตัดเสียงJarvisที่ย้อนเข้าไมค์
 
 # ── ท่องเว็บ ──────────────────────────────────────────────
 playwright>=1.50                # ขับ Google Chrome ที่ติดตั้งอยู่ผ่าน CDP

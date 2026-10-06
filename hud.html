@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- HUD ของน้องจาง: วงแหวนแบบ J.A.R.V.I.S ขยับตามเสียง (jarvis.py เรียก hud.update({...}) ทุก ~50 ms) -->
+<!-- HUD ของ Jarvis: ชื่อผู้ช่วยรับจาก jarvis.py ผ่าน hud.update({assistant_name: ...}) -->
 <html lang="th">
 <head>
 <meta charset="utf-8">
@@ -22,7 +22,7 @@
   <canvas id="c" width="720" height="720"></canvas>
   <div id="lines" class="empty">
     <div class="row"><span class="who">คุณ</span><span id="heard"></span></div>
-    <div class="row"><span class="who">น้องจาง</span><span id="reply"></span></div>
+    <div class="row"><span class="who" id="assistant-name">Jarvis</span><span id="reply"></span></div>
   </div>
 </div>
 <script>
@@ -39,6 +39,9 @@ window.hud = {
     document.documentElement.style.setProperty("--c", COLORS[st.state] || COLORS.listen);
     document.getElementById("heard").textContent = st.heard || "";
     document.getElementById("reply").textContent = st.reply || "";
+    if (st.assistant_name) {
+      document.getElementById("assistant-name").textContent = st.assistant_name;
+    }
     document.getElementById("lines").classList.toggle("empty", !st.heard && !st.reply);
   }
 };

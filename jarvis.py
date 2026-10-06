@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Jarvis ไทย — "น้องจาง" ผู้ช่วยสั่งงาน macOS ด้วยเสียงภาษาไทย แบบ full duplex
-(ฟังตลอดเวลา ไม่ต้องกดปุ่ม เรียก "น้องจาง" แล้วสั่งได้เลย พูดแทรกตอนน้องจางกำลังพูดได้)
+Jarvis ไทย — "ผู้ช่วย" ผู้ช่วยสั่งงาน macOS ด้วยเสียงภาษาไทย แบบ full duplex
+(ฟังตลอดเวลา ไม่ต้องกดปุ่ม เรียก "ผู้ช่วย" แล้วสั่งได้เลย พูดแทรกตอนผู้ช่วยกำลังพูดได้)
 
 ท่อการทำงาน
-  ไมค์ ─► ตัดเสียงสะท้อน (AEC) ─► VAD ตัดประโยค ─► Whisper ในเครื่อง (ภาษาไทย) ─► ได้ยิน "น้องจาง" ไหม
+  ไมค์ ─► ตัดเสียงสะท้อน (AEC) ─► VAD ตัดประโยค ─► Whisper ในเครื่อง (ภาษาไทย) ─► ได้ยิน "ผู้ช่วย" ไหม
        ─► Local LLM ใน LM Studio ตัดสินใจและตอบคำถาม
        ─► สั่ง macOS (osascript/shell) | ท่องเว็บด้วย Playwright (browser_agent.py) | ถาม Local LLM
        ─► พูดตอบด้วย say -v Kanya (เล่นผ่านลำโพงเอง จึงหยุดได้ทันทีเมื่อถูกพูดแทรก)
 
 วิธีใช้
-  python jarvis.py                          ฟังไมค์ (full duplex) เรียก "น้องจาง ..." ก่อนสั่ง
+  python jarvis.py                          ฟังไมค์ (full duplex) เรียก "ผู้ช่วย ..." ก่อนสั่ง
   python jarvis.py --text "เปิดสปอติฟาย"      สั่งด้วยข้อความ
   python jarvis.py --dry-run                ไม่สั่งเครื่องจริง แค่ print ว่าจะทำอะไร
   python jarvis.py --eval                   วัดความแม่นกับชุดประโยคทดสอบภาษาไทย
@@ -68,7 +68,7 @@ APPS = {
 }
 
 # เว็บยอดนิยม: "เปิดยูทูบ" = เปิดเว็บตรงๆ เลย (เร็วกว่าและไม่เปลือง token เท่าให้เอเจนต์ท่องเว็บ)
-# "ชื่อ": ("ชื่อที่น้องจางพูด", "คำอธิบายให้ Local AI", "URL")
+# "ชื่อ": ("ชื่อที่ผู้ช่วยพูด", "คำอธิบายให้ Local AI", "URL")
 SITES = {
     "YouTube":     ("ยูทูบ", "ยูทูบ", "https://www.youtube.com"),
     "Facebook":    ("เฟซบุ๊ก", "เฟซบุ๊ก, เฟส", "https://www.facebook.com"),
@@ -149,7 +149,7 @@ REPLIES = {
     "computer_task":  ["ได้ เดี๋ยวจัดการให้", "โอเค ขอคุมเครื่องแป๊บนะ"],
     "none":           ["อันนี้เรายังทำไม่เป็นอะ"],
     # ── ประโยคของระบบ ──
-    "ready":          ["น้องจางมาแล้ว เรียกได้เลย", "พร้อมละ ว่าไงดี"],
+    "ready":          ["พร้อมแล้ว เรียกได้เลย", "พร้อมละ ว่าไงดี"],
     "wake":           ["ว่าไง", "ครับ", "ว่ามาเลย"],
     "which_app":      ["เปิดแอปไหนนะ หาชื่อนั้นไม่เจออะ", "แอปอะไรนะ ขอชื่ออีกทีได้ไหม"],
     "retry":          ["เมื่อกี้ว่าไงนะ", "ไม่ค่อยชัดอะ ขออีกทีได้ไหม", "ขอโทษ ไม่ทันได้ยิน พูดอีกรอบนะ"],
@@ -196,8 +196,8 @@ CHAT_REPLIES = {
     "complaint":   ["ขอโทษนะ เดี๋ยวเราปรับให้ดีขึ้น บอกอีกทีได้ไหมว่าอยากให้ทำอะไร",
                     "ขอโทษจริงๆ ลองบอกใหม่อีกทีนะ เราจะตั้งใจฟัง"],
     "how_are_you": ["สบายดี พร้อมช่วยอยู่ นายล่ะเป็นไงบ้าง", "ดีเลย วันนี้นายเป็นไงบ้าง"],
-    "who_are_you": ["เราน้องจาง ผู้ช่วยบนเครื่องแมคของนายไง", "น้องจางไง เพื่อนที่คอยช่วยใช้คอมให้"],
-    "abilities":   ["เปิดปิดแอป ปรับเสียง คุมเพลง หาของในเว็บ อ่านจอ แล้วก็คลิกหรือพิมพ์ให้ได้ เรียกน้องจางแล้วสั่งมาเลย"],
+    "who_are_you": ["เราเป็นผู้ช่วยบนเครื่องแมคของนายไง"],
+    "abilities":   ["เปิดปิดแอป ปรับเสียง คุมเพลง หาของในเว็บ อ่านจอ แล้วก็คลิกหรือพิมพ์ให้ได้"],
     "tired":       ["พักบ้างนะ ดื่มน้ำด้วย", "เหนื่อยก็พักก่อน เดี๋ยวค่อยลุยต่อ"],
     "hungry":      ["หาอะไรกินก่อนเลย", "ไปกินข้าวก่อนนะ เดี๋ยวค่อยลุยต่อ"],
     "bored":       ["เปิดเพลงฟังไหม", "พักสายตาแป๊บนึงก็ได้นะ"],
@@ -216,9 +216,9 @@ MOOD_INTENTS = {"tired", "hungry", "bored", "sad"}
 ASKS_RE = re.compile(r"อะไร|ยังไง|อย่างไร|ทำไม|ไหม|มั้ย|หรือเปล่า|กี่|ที่ไหน|เท่าไ|ช่วย|แนะนำ|ดี\s*$")
 
 # คำใบ้ให้ Whisper: ประโยคไทยปนชื่อแอปอังกฤษ ช่วยให้สะกดชื่อแอปและคำปลุกถูก
-WHISPER_PROMPT = "น้องจาง เปิด Spotify ปิด LINE เปิด Slack เปิด Google Chrome เปิด VS Code เพิ่มเสียง ลดเสียง หยุดเพลง หาห้องพัก กี่โมงแล้ว"
+WHISPER_PROMPT = "เปิด Spotify ปิด LINE เปิด Slack เปิด Google Chrome เปิด VS Code เพิ่มเสียง ลดเสียง หยุดเพลง หาห้องพัก กี่โมงแล้ว"
 
-# รูปที่ Whisper มักถอดคำว่า "น้องจาง" ออกมา: น้องจาง น้อง จาง น้องจ้าง น้องจ๋าง น้องจาน น้องจัง น้องจาก นองจ่าง
+# รูปที่ Whisper มักถอดคำว่า "ผู้ช่วย" ออกมา: ผู้ช่วย น้อง จาง น้องจ้าง น้องจ๋าง น้องจาน น้องจัง น้องจาก นองจ่าง
 # ต้องมีตัวสะกด ง/น (หรือ ก ที่จบคำ) เสมอ กันคำทั่วไปอย่าง "น้องจ๋า", "น้องจัด", "น้องจับ" ปลุกผิด
 NONG_JANG_RE = r"(?:น้?อง|ด้อง|ท่าน)[\s,]*จ[่้๊๋]?[ัา][่้๊๋]?(?:[งน]|ก(?=[\s,.!?]|$))"
 
@@ -279,6 +279,10 @@ TTS_VOICE = env_str("TTS_VOICE", "Kanya")
 TTS_RATE = int(env_float("TTS_RATE", 230))
 # ระดับเสียง (pitch base ของ say) เว้นว่าง = เสียงปกติ · 28 ≈ ทุ้มแบบผู้ชาย (Kanya 211 Hz → ~110 Hz)
 TTS_PITCH = env_str("TTS_PITCH", "28")
+# บัฟเฟอร์เสียงที่ใหญ่ขึ้นช่วยกันเสียงขาดเมื่อ Local LLM/AEC ใช้ CPU; low ลดดีเลย์แต่เสี่ยงกระตุกกว่า
+AUDIO_LATENCY = env_str("AUDIO_LATENCY", "high").lower()
+if AUDIO_LATENCY not in {"low", "high"}:
+    AUDIO_LATENCY = "high"
 BARGE_IN = env_str("BARGE_IN", "auto").lower()          # auto | on | off
 SILENCE_MS = env_float("SILENCE_MS", 550)
 VAD_THRESHOLD = env_float("VAD_THRESHOLD", 0.5)
@@ -308,11 +312,18 @@ EXTRA_APPS = _installed_apps()
 MENUBAR = env_str("MENUBAR", "on").lower() not in ("off", "0", "no")   # ไอคอนเปิด/ปิดการฟังบนแถบเมนู
 HUD = env_str("HUD", "on").lower() not in ("off", "0", "no")           # หน้าจอ J.A.R.V.I.S ลอยบนจอ (ต้องมีเมนูบาร์)
 
-# คำปลุก: ค่าเริ่มต้น "น้องจาง" (คั่นหลายคำด้วย ,) ตั้ง WAKE_WORD=off เพื่อฟังทุกประโยคโดยไม่ต้องเรียกชื่อ
-_wake = env_str("WAKE_WORD", "น้องจาง")
+# ชื่อผู้ช่วยและคำปลุก ปรับได้จาก .env โดยไม่ต้องแก้ source
+ASSISTANT_NAME = env_str("ASSISTANT_NAME", "Jarvis")
+_wake = env_str("WAKE_WORD", f"{ASSISTANT_NAME},ผู้ช่วย")
 WAKE_WORDS = [] if _wake.lower() in ("off", "none", "-") else [w.strip() for w in _wake.split(",") if w.strip()]
-WAKE_RE = re.compile("|".join(NONG_JANG_RE if w == "น้องจาง" else re.escape(w) for w in WAKE_WORDS)) \
-    if WAKE_WORDS else None
+
+# Apple Speech/Whisper มักเขียนชื่ออังกฤษ "Jarvis" เป็นไทย จึงรับทั้งสองรูปแม้ .env
+# จะตั้ง WAKE_WORD=Jarvis ไว้เพียงค่าเดียว; ชื่อที่ผู้ใช้กำหนดเองยังจับแบบตรงตัวเหมือนเดิม
+_JARVIS_WAKE_RE = r"(?:jarvis|จา(?:ร์)?วิ[สศช])"
+_wake_patterns = [re.escape(w) for w in WAKE_WORDS]
+if any(w.casefold() == "jarvis" or re.fullmatch(r"จา(?:ร์)?วิ[สศช]", w) for w in WAKE_WORDS):
+    _wake_patterns.append(_JARVIS_WAKE_RE)
+WAKE_RE = re.compile("|".join(_wake_patterns), re.IGNORECASE) if _wake_patterns else None
 
 RATE = 16000                          # ทุกอย่างเป็น 16 kHz mono
 APP_ACTIONS = {"open_app", "quit_app"}
@@ -323,15 +334,15 @@ COMPOUND_MIN = env_float("COMPOUND_MIN", 0.5)   # สเปก: ≥ 0.5 ถา�
 HISTORY_IDLE_SEC = 180                # เงียบนานเกิน 3 นาที = เริ่มเรื่องใหม่ ล้างประวัติ (ไม่ส่งบทเก่าให้ LLM เปลือง token)   # category=question แต่ action=web_task มั่นใจเท่านี้ → ค้นเว็บแทนตอบเอง
 SPEAK_FIRST = {"volume_mute", "lock_screen", "sleep"}  # พูดให้จบก่อนค่อยทำ ไม่งั้นจะไม่ได้ยิน
 VOLUME_STEP = 10
-FOLLOWUP_SEC = env_float("CONVO_SEC", 30)   # หลังคุยกันแล้ว คุยต่อได้เรื่อยๆ โดยไม่ต้องเรียก "น้องจาง" ซ้ำภายในกี่วินาที
-BROWSER_PROFILE = ROOT / ".browser-profile"   # โปรไฟล์ Chrome แยกของน้องจาง (ไม่ยุ่งกับโปรไฟล์หลัก)
+FOLLOWUP_SEC = env_float("CONVO_SEC", 30)   # หลังคุยกันแล้ว คุยต่อได้เรื่อยๆ โดยไม่ต้องเรียก "ผู้ช่วย" ซ้ำภายในกี่วินาที
+BROWSER_PROFILE = ROOT / ".browser-profile"   # โปรไฟล์ Chrome แยกของผู้ช่วย (ไม่ยุ่งกับโปรไฟล์หลัก)
 MLX_WHISPER_REPO = env_str("MLX_WHISPER_REPO", "mlx-community/whisper-large-v3-turbo")
 FASTER_WHISPER_MODEL = "large-v3-turbo"
 # คำใบ้ให้ Whisper: auto = ใช้กับ Whisper ทั่วไป แต่ไม่ใช้กับรุ่นที่จูนไทยมาแล้ว (Typhoon) ซึ่งคำใบ้ทำให้วน
 _prompt_mode = env_str("WHISPER_PROMPT_MODE", "auto").lower()
 USE_WHISPER_PROMPT = _prompt_mode == "on" or (_prompt_mode == "auto" and "typhoon" not in MLX_WHISPER_REPO.lower())
 SAVE_UTTERANCES = env_str("SAVE_UTTERANCES")           # ใส่โฟลเดอร์ = เก็บเสียงแต่ละประโยคเป็น WAV ไว้ทดสอบ STT
-# เสียงคนคุยกันที่ไม่ได้เรียกน้องจาง: ปกติไม่พิมพ์ข้อความลง log (log ของแอปเก็บเป็นไฟล์) · all = พิมพ์ไว้ดีบัก
+# เสียงคนคุยกันที่ไม่ได้เรียกผู้ช่วย: ปกติไม่พิมพ์ข้อความลง log (log ของแอปเก็บเป็นไฟล์) · all = พิมพ์ไว้ดีบัก
 LOG_HEARD = env_str("LOG_HEARD", "").lower()
 # ความเห็นที่สอง: ถ้าเรียกชื่อแล้วแต่ Local AI ยังไม่มั่นใจ ให้ถอดเสียงเดิมซ้ำด้วยรุ่นที่จูนภาษาไทยก่อนขอให้พูดใหม่
 # auto = ใช้ถ้าโมเดลอยู่ในเครื่องแล้ว (ไม่ดาวน์โหลดเอง), off = ปิด, หรือใส่ชื่อ repo MLX เอง
@@ -342,6 +353,17 @@ TYPHOON_REPO = "chayapats/typhoon-whisper-turbo-mlx"
 STT_ENGINE = env_str("STT_ENGINE", "auto").lower()
 APPLE_STT_SRC = ROOT / "macos" / "nongjang_stt.swift"
 APPLE_STT_BIN = ROOT / "bin" / "nongjang-stt"
+
+# ข้อความที่ต้องสะท้อน identity จาก .env
+REPLIES["ready"] = [f"{ASSISTANT_NAME}มาแล้ว เรียกได้เลย", "พร้อมละ ว่าไงดี"]
+CHAT_REPLIES["who_are_you"] = [
+    f"เรา{ASSISTANT_NAME} ผู้ช่วยบนเครื่องแมคของนายไง",
+    f"{ASSISTANT_NAME}ไง เพื่อนที่คอยช่วยใช้คอมให้",
+]
+CHAT_REPLIES["abilities"] = [
+    f"เปิดปิดแอป ปรับเสียง คุมเพลง หาของในเว็บ อ่านจอ แล้วก็คลิกหรือพิมพ์ให้ได้ เรียก{ASSISTANT_NAME}แล้วสั่งมาเลย"
+]
+WHISPER_PROMPT = f"{ASSISTANT_NAME} เปิด Spotify ปิด LINE เปิด Slack เปิด Google Chrome เปิด VS Code เพิ่มเสียง ลดเสียง หยุดเพลง หาห้องพัก กี่โมงแล้ว"
 
 # ════════════════════════════════════════════════════════════════════════════
 # 3) ตัวช่วยทั่วไป
@@ -399,34 +421,13 @@ def pick(key: str, **kw) -> str:
 CANNED: set[str] = set()              # ประโยคสำเร็จรูป (ไม่มีข้อมูลของผู้ใช้) เก็บเสียงลงดิสก์ได้
 
 
-# จากเสียงจริงของผู้ใช้: Whisper ได้ยิน "น้องจาง" ต้นประโยคเป็น "ต้องจาง", "ต้องกลาง", "กล้องกลาง"
-# → รับรูปสัมผัส "_อง _าง" ที่ต้นประโยค เฉพาะพยัญชนะที่ถูกได้ยินสลับจริง (ไม่รับ "ท้องว่าง", "ต้องการ", "ของกลาง")
-_WAKE_RHYME = re.compile(r"^\s*(?:น|ต|ด|ก|กล)[่้๊๋]?อง[\s,]*(?:จ|ก|กล)[่้๊๋]?า[งน]")
-
-
+# Wake-word correction เดิมถูกจูนกับชื่อเฉพาะ จึงไม่ใช้ heuristic เมื่อชื่อปรับได้จาก .env
+# เพื่อหลีกเลี่ยง false positive ชื่อใหม่จะจับจาก WAKE_WORD แบบตรงตัว
 def _fuzzy_wake_prefix(text: str) -> int:
-    """ต้นประโยคฟังคล้าย "น้องจาง" ไหม คืนความยาวที่ต้องตัดออก หรือ 0"""
-    if "น้องจาง" not in WAKE_WORDS:
-        return 0
-    m = _WAKE_RHYME.match(text)
-    return m.end() if m else 0
-
-
-# จากเสียงจริงของผู้ใช้: ตัวถอดเสียงของ Apple ได้ยิน "น้องจาง" ต้นประโยคเป็น "ล้างจาน" "น้องแจง" "ต้องการ" "น้องจารย์"
-# "อาจารย์" ฯลฯ (น ของผู้ใช้ฟังคล้าย ล) → รับรูปเหล่านี้เฉพาะเมื่อตามด้วยคำสั่งทันที (กัน "ต้องจ่ายค่าไฟ" "ล้างจานยัง")
-# วัดแล้ว: เจอคำปลุก 56/139 (Whisper 55) · ใช้กับข้อความจาก Apple เท่านั้น
-_APPLE_WAKE_RE = re.compile(
-    r"^\s*(?:(?:น้อง|ต้อง)\s*(?:จ[่้]?า(?:รย์|ง|น|ก)?|แจง|ตาล|กานต์|จัง)|ล้าง\s*จาน"
-    r"|ต้องการ|นอกจาก|หลังจาก|จ้าง|จาน|อาจารย์)"
-    r"(?=\s*(?:เปิด|ปิด|หา|ค้น|ช่วย|ดู|ทำ|ฟัง|อยาก|อ่าน|เล่น|หยุด|เพิ่ม|ลด|ขอ|บอก|คลิก|พิมพ์|ตั้ง|ปรับ|ก็|วันนี้|ตอนนี้|$))")
-
+    return 0
 
 def fix_apple_wake(text: str) -> str:
-    """แก้คำปลุกที่ Apple ได้ยินเพี้ยนให้เป็น "น้องจาง" (ขั้นต่อไปจะได้ทำงานเหมือนเดิมทุกอย่าง)"""
-    if "น้องจาง" not in WAKE_WORDS or has_wake(text):
-        return text
-    m = _APPLE_WAKE_RE.match(text)
-    return f"น้องจาง {text[m.end():].lstrip()}".strip() if m else text
+    return text
 
 
 def has_wake(text: str) -> bool:
@@ -434,7 +435,7 @@ def has_wake(text: str) -> bool:
 
 
 def strip_wake(text: str) -> str:
-    """ตัดคำปลุกออกก่อนส่งให้ Local AI เช่น "น้องจาง เปิดไลน์" → "เปิดไลน์" """
+    """ตัดคำปลุกออกก่อนส่งให้ Local AI เช่น "ผู้ช่วย เปิดไลน์" → "เปิดไลน์" """
     if WAKE_RE is None:
         return text.strip()
     if WAKE_RE.search(text):
@@ -445,7 +446,7 @@ def strip_wake(text: str) -> str:
 
 
 def only_wake(text: str) -> bool:
-    """เรียกชื่อเฉยๆ ไม่ได้สั่งอะไร เช่น "น้องจาง" / "น้องจางครับ" / "สวัสดีน้องจาง" """
+    """เรียกชื่อเฉยๆ ไม่ได้สั่งอะไร เช่น "ผู้ช่วย" / "ผู้ช่วยครับ" / "สวัสดีผู้ช่วย" """
     rest = re.sub(r"(ครับผม|ครับ|คับ|ค่ะ|ค่า|คะ|ขา|จ้ะ|จ้า|ฮะ|นะ|หน่อย|สวัสดี|หวัดดี|เฮ้|ฮัลโหล|ว่าไง|อืม|เอ่อ)", "",
                   strip_wake(text))
     return WAKE_RE is not None and has_wake(text) and normalize(rest) == ""
@@ -517,7 +518,7 @@ def speakable(text: str) -> str:
     """ลบ markdown/อีโมจิ ให้เหลือข้อความที่อ่านออกเสียงได้"""
     text = re.sub(r"^\s*(?:[-*•]|\d+\.)\s+", "", text, flags=re.M)
     text = re.sub(r"[*_#`>|~\[\]]", "", text)
-    text = re.sub(r"(?:ค่ะ|คะ)(?=[\s.!?,]|$)", "ครับ", text)   # น้องจางเป็นผู้ชาย (ไม่แตะ "คะแนน")
+    text = re.sub(r"(?:ค่ะ|คะ)(?=[\s.!?,]|$)", "ครับ", text)   # ผู้ช่วยเป็นผู้ชาย (ไม่แตะ "คะแนน")
     text = re.sub(r"ดิฉัน", "เรา", text)
     return " ".join(EMOJI_RE.sub("", text).split())
 
@@ -631,7 +632,7 @@ class LocalDecisionEngine:
         actions = list(ACTIONS)
         apps = list(APP_CRITERIA)
         chats = list(CHAT_INTENTS)
-        system = f"""You are the local intent router for a Thai macOS voice assistant named น้องจาง.
+        system = f"""You are the local intent router for a Thai macOS voice assistant named {ASSISTANT_NAME}.
 Return ONE JSON object only. Never execute anything and never invent actions/apps outside the allowed lists.
 Speech-to-text may contain Thai misspellings or English app names written in Thai.
 Allowed categories: command, question, chat, noise.
@@ -643,7 +644,11 @@ Schema:
  "chat":"none","chat_confidence":0.0,
  "steps":[{{"action":"allowed action","app":"allowed app or none","volume":null,"confidence":0.0}}]}}
 For volume_set, volume must be integer 0..100. For non-command, steps must be [].
-Questions needing live web information should be command with action web_task. Questions about current screen should use read_screen.
+Questions needing live/current/up-to-date information MUST be category command with action web_task.
+This includes words/meanings such as วันนี้, ตอนนี้, ล่าสุด, ปัจจุบัน, ข่าว, ราคา, ราคาทอง, หุ้น, อากาศ, ฝน, คะแนน, ผลการแข่งขัน,
+สถานที่, ร้าน, โรงแรม, รีวิว, เวลาเปิดปิด, ตาราง, โปรโมชั่น, availability, current, today, latest, news, price, weather.
+If answering correctly may depend on information after the model's training data, route to web_task instead of answering from memory.
+Questions about current screen should use read_screen.
 Use multiple steps only when the user clearly requests multiple actions. Confidence must be 0..1.
 """
         user = text + (f"\nContext: {extra}" if extra else "")
@@ -733,10 +738,10 @@ class Plan:
     func: object = None                                    # งานที่ทำในโปรแกรมเอง (แทนคำสั่ง shell) คืน True = สำเร็จ
 
 
-# ── Chrome ของผู้ใช้ vs Chrome ของน้องจาง ──────────────────────────────────────────────────────
+# ── Chrome ของผู้ใช้ vs Chrome ของผู้ช่วย ──────────────────────────────────────────────────────
 # เอเจนต์เว็บเปิด Chrome อีกตัวด้วยโปรไฟล์แยก (.browser-profile) เพราะ Chrome ไม่ยอมให้คุมโปรไฟล์หลักผ่าน CDP
-# สองตัวเป็นแอปเดียวกัน → "open -a Google Chrome" / "open <ลิงก์>" อาจไปโผล่ในตัวของน้องจาง (ไม่มีบุ๊กมาร์ก/ล็อกอินของผู้ใช้)
-# open -n = เปิดโปรเซสใหม่ด้วยโปรไฟล์ปกติ → ถ้า Chrome ของผู้ใช้เปิดอยู่ มันส่งต่อไปให้ตัวนั้นเอง (ไม่แตะตัวของน้องจาง)
+# สองตัวเป็นแอปเดียวกัน → "open -a Google Chrome" / "open <ลิงก์>" อาจไปโผล่ในตัวของผู้ช่วย (ไม่มีบุ๊กมาร์ก/ล็อกอินของผู้ใช้)
+# open -n = เปิดโปรเซสใหม่ด้วยโปรไฟล์ปกติ → ถ้า Chrome ของผู้ใช้เปิดอยู่ มันส่งต่อไปให้ตัวนั้นเอง (ไม่แตะตัวของผู้ช่วย)
 CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 
@@ -754,7 +759,7 @@ def _default_browser() -> str:
 
 
 def open_url_cmd(url: str) -> list[str]:
-    """เปิดลิงก์ในเบราว์เซอร์ประจำของผู้ใช้ (ถ้าเป็น Chrome ต้องไม่ไปโผล่ในหน้าต่างของน้องจาง)"""
+    """เปิดลิงก์ในเบราว์เซอร์ประจำของผู้ใช้ (ถ้าเป็น Chrome ต้องไม่ไปโผล่ในหน้าต่างของผู้ช่วย)"""
     if _default_browser() == "com.google.chrome" and Path(CHROME_BIN).exists():
         from computer_agent import user_chrome_cmd
         return user_chrome_cmd(url)
@@ -773,7 +778,7 @@ def user_chrome_pids() -> list[int]:
 
 
 def quit_user_chrome() -> bool:
-    """ปิดเฉพาะ Chrome ของผู้ใช้ (ส่งคำสั่ง quit ปกติ เหมือนกด cmd+Q) ไม่แตะตัวของน้องจาง"""
+    """ปิดเฉพาะ Chrome ของผู้ใช้ (ส่งคำสั่ง quit ปกติ เหมือนกด cmd+Q) ไม่แตะตัวของผู้ช่วย"""
     import AppKit
     ok = False
     for pid in user_chrome_pids():
@@ -824,7 +829,7 @@ def make_plan(step: Step) -> Plan:
 
     if a == "open_app" and app in SITES:        # เว็บยอดนิยม → เปิดในเบราว์เซอร์หลักตรงๆ
         return Plan(pick(a, app=name), [open_url_cmd(SITES[app][2])])
-    if a == "open_app" and app == "Google Chrome":    # Chrome ตัวที่ผู้ใช้ใช้ประจำ ไม่ใช่ตัวของน้องจาง
+    if a == "open_app" and app == "Google Chrome":    # Chrome ตัวที่ผู้ใช้ใช้ประจำ ไม่ใช่ตัวของผู้ช่วย
         from computer_agent import user_chrome_cmd
         return Plan(pick(a, app=name), [user_chrome_cmd()], fail_reply=f"เปิด{name}ไม่ได้ครับ")
     if a == "open_app":
@@ -836,7 +841,7 @@ def make_plan(step: Step) -> Plan:
             return Plan(f"ปิด{name}ไม่ได้ครับ เพราะผมทำงานอยู่ในนั้น")
         if app == "Finder":   # Finder ปิดแล้วจะเปิดตัวเองใหม่ → ปิดหน้าต่างแทน
             return Plan("ปิดหน้าต่างไฟน์เดอร์ให้แล้วครับ", [osa('tell application "Finder" to close every window')])
-        if app == "Google Chrome":                     # ปิดเฉพาะตัวของผู้ใช้ (ตัวของน้องจางปิดเองตอนเลิกใช้)
+        if app == "Google Chrome":                     # ปิดเฉพาะตัวของผู้ใช้ (ตัวของผู้ช่วยปิดเองตอนเลิกใช้)
             if not user_chrome_pids():
                 return Plan(f"{name}ไม่ได้เปิดอยู่ครับ")
             return Plan(pick(a, app=name), func=quit_user_chrome, fail_reply=f"{name}ยังไม่ปิดครับ")
@@ -928,7 +933,7 @@ def execute(plan: Plan, dry_run: bool) -> bool:
             print(f"     {r.stderr.strip()[:200]}")
             if re.search(r"-1743|-1719|-25211|\(1002\)|Not authorized|assistive", r.stderr):
                 print("     🔐 macOS ยังไม่ให้สิทธิ์: System Settings › Privacy & Security › Automation / Accessibility "
-                      "แล้วเปิดให้แอปเทอร์มินัลที่รันน้องจาง")
+                      "แล้วเปิดให้แอปเทอร์มินัลที่รันผู้ช่วย")
     return dry_run or not plan.cmds
 
 
@@ -948,7 +953,7 @@ def save_utterance(audio: np.ndarray, text: str) -> None:
 # 6) สมองกลาง: ข้อความ → Local AI → สั่งเครื่อง / ถาม LLM / ข้าม → พูดตอบ
 # ════════════════════════════════════════════════════════════════════════════
 
-LLM_SYSTEM_PROMPT = """คุณคือ "น้องจาง" ผู้ช่วยเสียงบนเครื่อง Mac ของผู้ใช้ เป็นผู้ชาย คุยกับผู้ใช้เหมือนเพื่อนสนิท เป็นกันเอง ตอบไว
+LLM_SYSTEM_PROMPT = f"""คุณคือ "{ASSISTANT_NAME}" ผู้ช่วยเสียงบนเครื่อง Mac ของผู้ใช้ เป็นผู้ชาย คุยกับผู้ใช้เหมือนเพื่อนสนิท เป็นกันเอง ตอบไว
 - ตอบสั้นมาก 1-2 ประโยค เหมือนคุยโทรศัพท์กับเพื่อน ตอบตรงคำถามก่อนเสมอ
 - แทนตัวเองว่า "เรา" เท่านั้น (ห้ามใช้ "ฉัน" "ดิฉัน" "ผม") เรียกผู้ใช้ว่า "นาย" หรือไม่ต้องใช้สรรพนาม
 - ลงท้ายด้วย "นะ" "อะ" "ครับ" ตามธรรมชาติ สุภาพแบบเพื่อน ห้ามใช้คำหยาบ ห้ามใช้ "กู" "มึง"
@@ -958,9 +963,9 @@ LLM_SYSTEM_PROMPT = """คุณคือ "น้องจาง" ผู้ช�
 - ข้อความของผู้ใช้มาจากการถอดเสียง อาจสะกดผิด (เช่น ร/ล สลับกัน) ให้เดาความหมายที่น่าจะเป็น
 - ถ้าไม่แน่ใจข้อเท็จจริง บอกตรงๆ ว่าไม่แน่ใจ ห้ามเดาเรื่องยา สุขภาพ เงิน หรือตัวเลขสำคัญ
 - ตอนคุยแบบนี้เรามองไม่เห็นจอและยังไม่ได้ทำอะไรบนเครื่อง ห้ามแต่งว่าเห็นอะไรบนจอหรือทำอะไรให้แล้ว
-  ถ้าถามว่าทำได้ไหม ให้บอกว่าทำได้และบอกวิธีสั่ง เช่น "น้องจาง อ่านจอให้ฟังหน่อย" "น้องจาง เปิดสปอติฟาย"
-  "น้องจาง หาห้องพักแถวเมืองทองให้หน่อย" "น้องจาง คลิกปุ่มบันทึกให้หน่อย"
-ตอนนี้คือ {now}"""
+  ถ้าถามว่าทำได้ไหม ให้บอกว่าทำได้และบอกวิธีสั่ง เช่น "{ASSISTANT_NAME} อ่านจอให้ฟังหน่อย" "{ASSISTANT_NAME} เปิดสปอติฟาย"
+  "{ASSISTANT_NAME} หาห้องพักแถวเมืองทองให้หน่อย" "{ASSISTANT_NAME} คลิกปุ่มบันทึกให้หน่อย"
+ตอนนี้คือ {{now}}"""
 
 
 class Assistant:
@@ -1009,7 +1014,7 @@ class Assistant:
         return d
 
     def _handle(self, text: str, second_opinion=None) -> None:
-        if only_wake(text):                # เรียก "น้องจาง" เฉยๆ → ขานรับแล้วรอฟังคำสั่ง
+        if only_wake(text):                # เรียก "ผู้ช่วย" เฉยๆ → ขานรับแล้วรอฟังคำสั่ง
             self.speaker.say(pick("wake"))
             self.last_active = time.monotonic()
             return
@@ -1017,7 +1022,7 @@ class Assistant:
         text = strip_wake(text)
         if self.history and time.monotonic() - self.last_active > HISTORY_IDLE_SEC:
             self.history.clear()
-        # บริบทการคุย: ถ้าเพิ่งคุยกันอยู่ บอก Local AI ว่าน้องจางเพิ่งพูดอะไรไป (ผู้ใช้อาจกำลังตอบกลับ)
+        # บริบทการคุย: ถ้าเพิ่งคุยกันอยู่ บอก Local AI ว่าผู้ช่วยเพิ่งพูดอะไรไป (ผู้ใช้อาจกำลังตอบกลับ)
         chatting = self.history and time.monotonic() - self.last_active < FOLLOWUP_SEC
         context = f"The assistant just said: \"{self.history[-1][1][:120]}\". The speaker may be replying to it." \
             if chatting else ""
@@ -1070,7 +1075,7 @@ class Assistant:
             self._chat_reply(text, early, early_text)
             return
         if d.category == "noise":
-            print("  🔇 ไม่ได้พูดกับน้องจาง — ข้าม")
+            print(f"  🔇 ไม่ได้พูดกับ{ASSISTANT_NAME} — ข้าม")
             return
         # confidence gate: ไม่มั่นใจ → ขอพูดใหม่, พลาด 2 ครั้งติด → ข้าม
         if d.conf < need and not woke:     # ไม่ได้เรียกชื่อ (ช่วงคุยต่อ) แล้วยังไม่ชัด → น่าจะไม่ได้คุยกับเรา
@@ -1363,12 +1368,15 @@ def canned_texts() -> list[str]:
     return list(dict.fromkeys(texts))
 
 
-def warm_tts() -> None:
+def warm_tts(speaker=None) -> None:
     """สังเคราะห์ประโยคสำเร็จรูปเก็บไว้ล่วงหน้า (เบื้องหลัง ครั้งแรก ~2 นาที ครั้งต่อไปโหลดจากไฟล์ทันที)"""
     todo = canned_texts()
     CANNED.update(todo)
     made = 0
     for text in todo:
+        # การเรียก say รัวๆ ระหว่างกำลังเล่นเสียงอาจแย่ง CPU จนบัฟเฟอร์เสียงขาด
+        while speaker is not None and speaker.busy:
+            time.sleep(0.15)
         if not (TTS_CACHE_DIR / f"{_tts_key(text)}.npy").exists():
             made += 1
         speech_audio(text)
@@ -1452,7 +1460,7 @@ class Speaker:
         self._last_sound = 0.0
         self._reply_start = 0.0
         self.stream = sd.OutputStream(samplerate=RATE, channels=1, dtype="int16",
-                                      blocksize=self.BLOCK, callback=self._on_output)
+                                      blocksize=self.BLOCK, latency=AUDIO_LATENCY, callback=self._on_output)
         self.stream.start()
         threading.Thread(target=self._synth_loop, daemon=True).start()
 
@@ -1566,12 +1574,12 @@ class Segmenter:
     def __init__(self):
         ms = self.CHUNK_MS
         self.start_chunks = 3                        # พูดต่อเนื่อง ~0.1 วิ = เริ่มประโยค
-        self.barge_chunks = 10                       # ตอนน้องจางพูดอยู่ ต้องพูดชัดๆ ~0.3 วิ ถึงนับว่าพูดแทรก
+        self.barge_chunks = 10                       # ตอนผู้ช่วยพูดอยู่ ต้องพูดชัดๆ ~0.3 วิ ถึงนับว่าพูดแทรก
         self.barge_threshold = max(VAD_THRESHOLD, 0.6)
         self.end_chunks = max(1, int(SILENCE_MS / ms))
         self.max_chunks = int(15_000 / ms)           # ยาวสุด 15 วิ
         self.min_voiced = int(300 / ms)              # ต้องมีเสียงพูดรวม ≥ 0.3 วิ
-        # เก็บเสียงก่อนเริ่มพูด ~0.5 วิ บวกช่วงที่ใช้ตัดสินว่าพูดแทรก กันหัวคำ ("น้องจาง") หาย
+        # เก็บเสียงก่อนเริ่มพูด ~0.5 วิ บวกช่วงที่ใช้ตัดสินว่าพูดแทรก กันหัวคำ ("ผู้ช่วย") หาย
         # (เดิมเท่ากับ barge_chunks พอดี → ตอนพูดแทรกไม่เหลือเสียงก่อนหน้าเลย; แนวคิดจาก pipecat, BSD-2)
         self.preroll: deque = deque(maxlen=int(500 / ms) + self.barge_chunks)
         self.reset()
@@ -1581,10 +1589,10 @@ class Segmenter:
 
     def feed(self, chunk: np.ndarray, prob: float, playing: bool = False,
              allow_barge: bool = True) -> tuple[np.ndarray | None, bool]:
-        """คืน (เสียงของประโยคที่จบแล้ว หรือ None, เพิ่งเริ่มพูดแทรกตอนน้องจางพูดอยู่หรือไม่)"""
+        """คืน (เสียงของประโยคที่จบแล้ว หรือ None, เพิ่งเริ่มพูดแทรกตอนผู้ช่วยพูดอยู่หรือไม่)"""
         self.preroll.append(chunk)
         if not self.active:
-            if playing and not allow_barge:          # ช่วงต้นประโยคของน้องจาง: ยังไม่รับการแทรก
+            if playing and not allow_barge:          # ช่วงต้นประโยคของผู้ช่วย: ยังไม่รับการแทรก
                 self.run = 0
                 return None, False
             threshold = self.barge_threshold if playing else VAD_THRESHOLD
@@ -1624,7 +1632,7 @@ class Ears:
         self.speaker = speaker
         self.vad = SileroVoiceActivityDetector()
         self.seg = Segmenter()
-        # ประโยคที่พูดจบแล้ว: (เสียง float32, เริ่มตอนน้องจางพูดอยู่ไหม, ทำให้น้องจางหยุดชั่วคราวไหม)
+        # ประโยคที่พูดจบแล้ว: (เสียง float32, เริ่มตอนผู้ช่วยพูดอยู่ไหม, ทำให้ผู้ช่วยหยุดชั่วคราวไหม)
         self.utterances: queue.Queue = queue.Queue()
         self._blocks: queue.Queue = queue.Queue()
         self.rtc, self.apm = make_echo_canceller() if isinstance(speaker, Speaker) else (None, None)
@@ -1637,7 +1645,7 @@ class Ears:
         self._overlap = self._interrupted = False
         speaker.on_played = self._reference
         self.stream = sd.InputStream(samplerate=RATE, channels=1, dtype="int16",
-                                     blocksize=self.BLOCK, callback=self._on_input)
+                                     blocksize=self.BLOCK, latency=AUDIO_LATENCY, callback=self._on_input)
 
     def start(self) -> None:
         self.stream.start()
@@ -1677,7 +1685,7 @@ class Ears:
         """AEC พัง → ปิด AEC แล้วถอยไปแบบ half duplex (ไม่ให้ callback เสียงตายทั้งระบบ)"""
         self.apm = None
         self.barge_in = BARGE_IN == "on"
-        print(f"\n⚠️  ตัวตัดเสียงสะท้อนผิดพลาด ({e}) — ปิด AEC และไม่ฟังระหว่างน้องจางพูด")
+        print(f"\n⚠️  ตัวตัดเสียงสะท้อนผิดพลาด ({e}) — ปิด AEC และไม่ฟังระหว่างผู้ช่วยพูด")
 
     def _reference(self, played: np.ndarray) -> None:
         """เสียงที่เพิ่งออกลำโพง → ป้อนให้ AEC รู้ว่าอะไรคือเสียงสะท้อน"""
@@ -1728,8 +1736,8 @@ class Ears:
             return
         self.level = float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2))) / 32768   # ความดังไมค์ (HUD)
         prob = self.vad.process_chunk(chunk.tobytes())
-        # ผู้ใช้พูดค้างอยู่ตอนน้องจางเริ่มตอบ → พักไว้ก่อน (ต้องพูดต่อเนื่อง 4 ก้อน และพ้นช่วง warm-up
-        # ไม่งั้นเสียงสะท้อนช่วงต้นประโยคจะทำให้น้องจางหยุดตัวเอง)
+        # ผู้ใช้พูดค้างอยู่ตอนผู้ช่วยเริ่มตอบ → พักไว้ก่อน (ต้องพูดต่อเนื่อง 4 ก้อน และพ้นช่วง warm-up
+        # ไม่งั้นเสียงสะท้อนช่วงต้นประโยคจะทำให้ผู้ช่วยหยุดตัวเอง)
         talking = playing and self.seg.active and not self.speaker.in_warmup and prob >= self.seg.barge_threshold
         self._talk = self._talk + 1 if talking else 0
         if self._talk >= 4:
@@ -1737,11 +1745,11 @@ class Ears:
             self._interrupted = True
         was_active = self.seg.active
         audio, barged = self.seg.feed(chunk, prob, playing, allow_barge=not self.speaker.in_warmup)
-        if self.seg.active and not was_active:       # เพิ่งเริ่มประโยค: จำว่าเริ่มตอนน้องจางพูดอยู่ไหม
+        if self.seg.active and not was_active:       # เพิ่งเริ่มประโยค: จำว่าเริ่มตอนผู้ช่วยพูดอยู่ไหม
             self._overlap = playing                  # playing รวมช่วง TAIL หลังเสียงสุดท้ายแล้ว
             self._interrupted = False
         if barged:
-            # หยุดชั่วคราวก่อน ถ้าถอดความแล้วไม่ใช่ผู้ใช้เรียกน้องจางจริง จะพูดต่อจากเดิม
+            # หยุดชั่วคราวก่อน ถ้าถอดความแล้วไม่ใช่ผู้ใช้เรียกผู้ช่วยจริง จะพูดต่อจากเดิม
             self.speaker.pause()
             self._interrupted = True
             print("\n✋ ได้ยินเสียงแทรก — หยุดฟังก่อน")
@@ -1796,7 +1804,7 @@ class AppleSTT:
     ส่ง: [ความยาว uint32][เสียง int16 16 kHz mono] → รับ: JSON หนึ่งบรรทัด {"text": ...}"""
     TIMEOUT = 15.0
 
-    def __init__(self, bias=("น้องจาง",)):
+    def __init__(self, bias=None):
         import json
         import struct
         self.json, self.struct = json, struct
@@ -1805,7 +1813,8 @@ class AppleSTT:
             APPLE_STT_BIN.parent.mkdir(exist_ok=True)
             subprocess.run(["xcrun", "swiftc", "-O", "-parse-as-library", "-o", str(APPLE_STT_BIN), str(APPLE_STT_SRC)],
                            check=True, capture_output=True, timeout=300)
-        self.p = subprocess.Popen([str(APPLE_STT_BIN), *bias], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        # ไม่มี bias ก็ต้องส่งรายการว่าง; การ unpack None ทำให้ Apple STT ล้มก่อนเริ่มและ fallback ไป Whisper ทุกครั้ง
+        self.p = subprocess.Popen([str(APPLE_STT_BIN), *(bias or [])], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL, bufsize=0)
         hello = self._read()
         if not hello.get("ready"):
@@ -1971,7 +1980,7 @@ def check_voice() -> None:
     voices = read_cmd(["say", "-v", "?"])
     if not re.search(rf"^{re.escape(TTS_VOICE)}\s", voices, flags=re.M):
         print(f"⚠️  ไม่พบเสียง '{TTS_VOICE}' ในเครื่อง ติดตั้งได้ที่ System Settings › Accessibility › "
-              "Spoken Content › System Voice › Manage Voices… › ภาษาไทย (Kanya)")
+              "Spoken Content › System Voice › Manage Voices… แล้วเลือกดาวน์โหลดเสียงนี้")
 
 
 def run_text(text: str, dry_run: bool) -> None:
@@ -2022,29 +2031,29 @@ def run_wav(path: str, dry_run: bool) -> None:
 
 
 def private(text: str) -> str:
-    """ข้อความที่ไม่ได้พูดกับน้องจาง (เช่น คนในบ้านคุยกัน) ไม่ต้องเก็บเนื้อหา แค่บอกความยาว"""
+    """ข้อความที่ไม่ได้พูดกับผู้ช่วย (เช่น คนในบ้านคุยกัน) ไม่ต้องเก็บเนื้อหา แค่บอกความยาว"""
     return text if LOG_HEARD == "all" else f"({len(text)} ตัวอักษร)"
 
 
 def should_handle(text: str, assistant: Assistant, recent=(), overlapped: bool = False) -> bool:
-    """กรองข้อความที่ได้จากเสียง: ขยะของ Whisper, เสียงน้องจางเองที่ย้อนเข้าไมค์, ไม่ได้เรียก "น้องจาง"
-    overlapped = ประโยคนี้เริ่มตอนน้องจางกำลังพูด (อาจเป็นเสียงสะท้อน) → ต้องเรียกชื่อเท่านั้น"""
+    """กรองข้อความที่ได้จากเสียง: ขยะของ Whisper, เสียงผู้ช่วยเองที่ย้อนเข้าไมค์, ไม่ได้เรียก "ผู้ช่วย"
+    overlapped = ประโยคนี้เริ่มตอนผู้ช่วยกำลังพูด (อาจเป็นเสียงสะท้อน) → ต้องเรียกชื่อเท่านั้น"""
     if not text or is_garbage(text):
         return False
     if overlapped and is_echo(text, recent):
-        print(f"  (ตัดทิ้ง: เสียงของน้องจางเองที่ย้อนเข้าไมค์) {text}")
+        print(f"  (ตัดทิ้ง: เสียงของผู้ช่วยเองที่ย้อนเข้าไมค์) {text}")
         return False
     if has_wake(text):
         return True
     if overlapped:
-        print(f"  (ได้ยินระหว่างน้องจางพูด แต่ไม่ได้เรียกชื่อ — ข้าม) {private(text)}")
+        print(f"  (ได้ยินระหว่างผู้ช่วยพูด แต่ไม่ได้เรียกชื่อ — ข้าม) {private(text)}")
         return False
-    # ช่วงคุยต่อโดยไม่ต้องเรียกชื่อ: เฉพาะหลังผู้ใช้คุยด้วยจริง นับจากตอนที่น้องจางพูดตอบจบ
+    # ช่วงคุยต่อโดยไม่ต้องเรียกชื่อ: เฉพาะหลังผู้ใช้คุยด้วยจริง นับจากตอนที่ผู้ช่วยพูดตอบจบ
     last = assistant.last_active
     if last and assistant.speaker._last_sound > last:
         last = assistant.speaker._last_sound
     if not last or time.monotonic() - last > FOLLOWUP_SEC:
-        print(f"  💤 ไม่ได้เรียกน้องจาง — ข้าม: {private(text)}")
+        print(f"  💤 ไม่ได้เรียกผู้ช่วย — ข้าม: {private(text)}")
         return False
     return True
 
@@ -2071,20 +2080,20 @@ def run_mic(dry_run: bool) -> None:
 
     duplex = ("full duplex + ตัดเสียงสะท้อน (AEC)" if ears.apm is not None and ears.barge_in else
               "full duplex ไม่มี AEC (ควรใส่หูฟัง)" if ears.barge_in else
-              "half duplex (ไม่ฟังระหว่างน้องจางพูด)")
+              "half duplex (ไม่ฟังระหว่างผู้ช่วยพูด)")
     llm_label = f"LM Studio · {_active_model() or 'ยังไม่มีโมเดลโหลดอยู่'} (Local AI)"
     wake = f"{', '.join(WAKE_WORDS)} (คุยต่อได้ {FOLLOWUP_SEC:.0f} วิโดยไม่ต้องเรียกซ้ำ)" if WAKE_WORDS \
         else "ไม่ใช้ (ฟังทุกประโยค)"
     print(f"""
-╭─ Jarvis ไทย · น้องจาง ─────────────────────────────────
+╭─ Jarvis ไทย · {ASSISTANT_NAME} ─────────────────────────────────
 │ STT      : {stt.name}{f" · ความเห็นที่สอง {stt.second}" if stt.second else ""}
 │ Router   : LM Studio Local AI · CONF_MIN {CONF_MIN:.2f} (คำสั่งเสี่ยง {CONF_RISKY:.2f})
 │ LLM      : {llm_label}
 │ เสียง     : {TTS_VOICE} @ {TTS_RATE}{f" ทุ้ม {TTS_PITCH}" if TTS_PITCH else ""} · {duplex}
 │ คำปลุก    : {wake}{'  · DRY-RUN' if dry_run else ''}
-╰─ พูดได้เลย เช่น "น้องจาง เปิดสปอติฟาย" (Ctrl+C เพื่อออก)""")
+╰─ พูดได้เลย เช่น "{ASSISTANT_NAME} เปิดสปอติฟาย" (Ctrl+C เพื่อออก)""")
     speaker.say(pick("ready"))
-    threading.Thread(target=warm_tts, daemon=True).start()   # เตรียมเสียงประโยคสำเร็จรูป (ตอบได้ทันที)
+    threading.Thread(target=warm_tts, args=(speaker,), daemon=True).start()   # เตรียมเสียงประโยคสำเร็จรูป (ตอบได้ทันที)
 
     def listen_loop() -> None:
         """ลูปหลัก: รอประโยคจากไมค์ → Whisper → กรอง → Assistant (ทำงานในเธรดแยกเมื่อมีเมนูบาร์)"""
@@ -2100,7 +2109,7 @@ def run_mic(dry_run: bool) -> None:
                     if interrupted:                  # ไม่ใช่ผู้ใช้เรียกจริง → พูดต่อจากที่ค้างไว้
                         speaker.resume()
                     continue
-                if interrupted:                      # ผู้ใช้เรียกน้องจางจริง → ทิ้งประโยคที่พูดค้าง
+                if interrupted:                      # ผู้ใช้เรียกผู้ช่วยจริง → ทิ้งประโยคที่พูดค้าง
                     speaker.stop()
                 print(f"\n🗣️  {text}  ·  STT {ms:.0f} ms ({len(audio) / RATE:.1f} วิ)")
                 assistant.handle(text, (lambda a=audio: stt.transcribe_second(a)) if stt.second else None)
@@ -2136,7 +2145,7 @@ def watch_launcher() -> None:
             kq.control(None, 1)                     # รอจนตัวเปิดแอปจบ
         except OSError:                             # ตัวเปิดหายไปแล้ว
             pass
-        print("⚠️  ตัวเปิดแอปหายไป → ปิดน้องจางตาม")
+        print("⚠️  ตัวเปิดแอปหายไป → ปิดผู้ช่วยตาม")
         os.kill(os.getpid(), signal.SIGINT)         # ใช้ทางปิดปกติ (เก็บกวาดครบ)
         time.sleep(6)                               # เธรดหลักค้าง → ปิดแรงๆ
         LocalLLM.stop()
@@ -2172,7 +2181,7 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
     symbols = {"off": "mic.slash.fill", "web": "globe", "control": "cursorarrow.click.2", "speak": "waveform",
                "think": "ellipsis.circle", "listen": "mic.fill"}
     labels = {"off": "ปิดการฟังอยู่", "web": "กำลังท่องเว็บ…", "control": "กำลังคุมเครื่อง…", "speak": "กำลังพูด…",
-              "think": "กำลังคิด…", "listen": "กำลังฟัง — เรียก \"น้องจาง\" ได้เลย"}
+              "think": "กำลังคิด…", "listen": f"กำลังฟัง — เรียก \"{ASSISTANT_NAME}\" ได้เลย"}
 
     def current_state() -> str:
         job = assistant.job
@@ -2213,7 +2222,7 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
                 image = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(symbols[state], labels[state])
                 image.setTemplate_(True)                 # สีตามธีมของแถบเมนูอัตโนมัติ
                 self.item.button().setImage_(image)
-                self.item.button().setToolTip_(f"น้องจาง: {labels[state]}")
+                self.item.button().setToolTip_(f"{ASSISTANT_NAME}: {labels[state]}")
                 self.status.setTitle_(labels[state])
             self.toggle.setTitle_("เริ่มฟัง" if state == "off" else "หยุดฟัง")
             if self.hud is not None:
@@ -2240,7 +2249,7 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
     ctl.hud_toggle = add("ซ่อน J.A.R.V.I.S", "toggleHud:")
     ctl.pin = add("ปักหมุด J.A.R.V.I.S ไว้บนสุด", "togglePin:")
     menu.addItem_(AppKit.NSMenuItem.separatorItem())
-    add("ออกจากน้องจาง", "quit:", "q")
+    add(f"ออกจาก{ASSISTANT_NAME}", "quit:", "q")
     ctl.item.setMenu_(menu)
 
     ctl.hud = None
@@ -2353,8 +2362,12 @@ class JarvisHUD:
         level = getattr(speaker, "level", 0.0) if state == "speak" else self.ears.level
         recent = list(getattr(speaker, "recent", []))
         data = {"state": state, "level": round(level, 4), "pinned": self.pinned,
-                "heard": self.assistant.last_text[-80:], "reply": recent[-1][1][:90] if recent else ""}
-        self.web.evaluateJavaScript_completionHandler_(f"window.hud && hud.update({self.json.dumps(data)})", None)
+                "heard": self.assistant.last_text[-80:], "reply": recent[-1][1][:90] if recent else "",
+                "assistant_name": ASSISTANT_NAME}
+        # ส่งเป็น JSON ก้อนเดียว: ชื่อหรือข้อความสนทนาที่มีอัญประกาศ/Unicode จะไม่ทำให้ JavaScript พัง
+        payload = self.json.dumps(data, ensure_ascii=False)
+        self.web.evaluateJavaScript_completionHandler_(
+            f"window.hud && window.hud.update({payload});", None)
 
     def _load(self) -> dict:
         try:
@@ -2373,7 +2386,7 @@ class JarvisHUD:
 
 # ── ชุดทดสอบ --eval: (กลุ่ม, ประโยค, ประเภทที่ถูก, ขั้นตอนที่ถูก [(action, app, volume)]) ──
 EVAL_CASES = [
-    ("คำสั่งเดี่ยว", "น้องจาง เปิดสปอติฟายให้หน่อย", "command", [("open_app", "Spotify")]),
+    ("คำสั่งเดี่ยว", "ผู้ช่วย เปิดสปอติฟายให้หน่อย", "command", [("open_app", "Spotify")]),
     ("คำสั่งเดี่ยว", "น้องจ้าง ปิดไลน์ที", "command", [("quit_app", "LINE")]),
     ("คำสั่งเดี่ยว", "เพิ่มเสียงหน่อย", "command", [("volume_up",)]),
     ("คำสั่งเดี่ยว", "เบาเสียงลงหน่อยครับ", "command", [("volume_down",)]),
@@ -2385,24 +2398,24 @@ EVAL_CASES = [
     ("คำสั่งเดี่ยว", "ตอนนี้กี่โมงแล้ว", "command", [("tell_time",)]),
     ("คำสั่งเดี่ยว", "เปิดวีเอสโค้ดหน่อย", "command", [("open_app", "Visual Studio Code")]),
     ("คำสั่งเดี่ยว", "ขอ Google Chrome หน่อย", "command", [("open_app", "Google Chrome")]),
-    ("คำสั่งเดี่ยว", "น้องจาง เปิดยูทูบให้หน่อย", "command", [("open_app", "YouTube")]),
+    ("คำสั่งเดี่ยว", "ผู้ช่วย เปิดยูทูบให้หน่อย", "command", [("open_app", "YouTube")]),
     ("คำสั่งเดี่ยว", "ตั้งเสียงสามสิบห้า", "command", [("volume_set", None, 35)]),
     ("คำสั่งซ้อน", "หยุดเพลงแล้วเปิดสแล็ก", "command", [("music_pause",), ("open_app", "Slack")]),
     ("คำสั่งซ้อน", "ปิดซาฟารีแล้วเปิดโน้ต", "command", [("quit_app", "Safari"), ("open_app", "Notes")]),
     ("คำสั่งซ้อน", "เพิ่มเสียงแล้วก็เปลี่ยนเพลงถัดไป", "command", [("volume_up",), ("music_next",)]),
     ("คำสั่งซ้อน", "ปิด Slack แล้วตั้งเสียง 30", "command", [("quit_app", "Slack"), ("volume_set", None, 30)]),
-    ("งานบนเว็บ", "น้องจาง หาห้องพักแถวเมืองทองธานีให้หน่อย", "command", [("web_task",)]),
+    ("งานบนเว็บ", "ผู้ช่วย หาห้องพักแถวเมืองทองธานีให้หน่อย", "command", [("web_task",)]),
     ("งานบนเว็บ", "ช่วยเช็คราคาไอโฟนรุ่นล่าสุดให้หน่อย", "command", [("web_task",)]),
     ("งานบนเว็บ", "พรุ่งนี้กรุงเทพฝนจะตกไหม", "command", [("web_task",)]),
-    ("คุมคอม", "น้องจาง อ่านจอให้ฟังหน่อย", "command", [("read_screen",)]),
-    ("คุมคอม", "น้องจาง อ่านจอได้รึเปล่า", "command", [("read_screen",)]),
+    ("คุมคอม", "ผู้ช่วย อ่านจอให้ฟังหน่อย", "command", [("read_screen",)]),
+    ("คุมคอม", "ผู้ช่วย อ่านจอได้รึเปล่า", "command", [("read_screen",)]),
     ("คุมคอม", "คลิกปุ่มบันทึกให้หน่อย", "command", [("computer_task",)]),
     ("คุมคอม", "เลื่อนลงอีกหน่อย", "command", [("computer_task",)]),
     ("คุมคอม", "พิมพ์คำว่าสวัสดีลงไปในช่องนี้ที", "command", [("computer_task",)]),
     ("คำถามทั่วไป", "เมืองหลวงของญี่ปุ่นคือที่ไหน", "question", []),
     ("คำถามทั่วไป", "ทำไมท้องฟ้าถึงเป็นสีฟ้า", "question", []),
     ("คำถามทั่วไป", "แนะนำวิธีนอนให้หลับง่ายหน่อย", "question", []),
-    ("คำถามทั่วไป", "น้องจาง สวัสดี วันนี้เป็นยังไงบ้าง", "question", []),
+    ("คำถามทั่วไป", "ผู้ช่วย สวัสดี วันนี้เป็นยังไงบ้าง", "question", []),
     ("เสียงรบกวน", "เออ แม่ วันนี้กินข้าวที่ไหนดี", "noise", []),
     ("เสียงรบกวน", "อืม เอ่อ", "noise", []),
     ("เสียงรบกวน", "ขอบคุณที่รับชมค่ะ", "noise", []),
@@ -2464,7 +2477,7 @@ def run_eval() -> float:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Jarvis ไทย (น้องจาง) — ผู้ช่วยสั่งงาน macOS ด้วยเสียงภาษาไทย แบบ full duplex")
+    parser = argparse.ArgumentParser(description=f"Jarvis ไทย ({ASSISTANT_NAME}) — ผู้ช่วยสั่งงาน macOS ด้วยเสียงภาษาไทย แบบ full duplex")
     parser.add_argument("--text", help="สั่งด้วยข้อความแทนเสียง")
     parser.add_argument("--dry-run", action="store_true", help="ไม่สั่งเครื่องจริง แค่ print ว่าจะทำอะไร")
     parser.add_argument("--eval", action="store_true", help="วัดความแม่นกับชุดประโยคทดสอบภาษาไทย")
