@@ -945,6 +945,36 @@ def youtube_music_query(text: str) -> str:
     return query.strip(" ,.!?") or "เพลงฮิตไทย"
 
 
+def play_youtube_in_user_chrome(query: str) -> bool:
+    """เปิดผลค้นหาแล้วคลิกวิดีโอแรก/สั่ง video.play ใน Chrome profile ของผู้ใช้."""
+    from computer_agent import user_chrome_cmd
+    from urllib.parse import quote_plus
+    url = f"https://www.youtube.com/results?search_query={quote_plus(query)}"
+    try:
+        opened = subprocess.run(user_chrome_cmd(url), capture_output=True, text=True, timeout=15)
+        if opened.returncode:
+            print(f"  ⚠️  เปิด YouTube ไม่สำเร็จ: {opened.stderr.strip()[:160]}")
+            return False
+        # Chrome รองรับ AppleScript execute javascript กับแท็บที่เลือกอยู่: รอผลค้นหาวาดแล้วกดวิดีโอแรก
+        click_first = ('tell application "Google Chrome" to tell active tab of front window to '
+                       'execute javascript "(() => { const a = document.querySelector(\'a#video-title[href*=\\\"watch\\\"]\'); '
+                       'if (!a) return \'waiting\'; a.click(); return \'started\'; })()"')
+        for _ in range(4):
+            time.sleep(1.5)
+            clicked = subprocess.run(osa(click_first), capture_output=True, text=True, timeout=10)
+            if clicked.returncode == 0 and "started" in clicked.stdout:
+                time.sleep(1)
+                play = ('tell application "Google Chrome" to tell active tab of front window to '
+                        'execute javascript "document.querySelector(\'video\')?.play().then(() => \'playing\').catch(() => \'blocked\')"')
+                subprocess.run(osa(play), capture_output=True, text=True, timeout=10)
+                return True
+        print("  ⚠️  YouTube โหลดช้า — เปิดผลค้นหาไว้ให้เลือกแล้ว")
+        return True
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"  ⚠️  เปิด/เล่น YouTube ไม่สำเร็จ: {exc}")
+        return False
+
+
 def make_plan(step: Step, text: str = "") -> Plan:
     """แปลงหนึ่งขั้นตอนเป็นคำสั่ง shell + ประโยคตอบ"""
     a, app = step.action, step.app
@@ -996,11 +1026,8 @@ def make_plan(step: Step, text: str = "") -> Plan:
                 # "เปิดเพลง <ชื่อเพลง>" ต้องค้นหาชื่อเพลง ไม่ใช่เปิดหน้า YouTube เปล่า
                 # user_chrome_cmd ใช้ CHROME_PROFILE ที่เลือกไว้ (เช่น NOMAD) หรือ profile ล่าสุด
                 # จึงไม่ปะปนกับ Chrome โปรไฟล์แยกของเอเจนต์เว็บ
-                from computer_agent import user_chrome_cmd
-                from urllib.parse import quote_plus
                 query = youtube_music_query(text)
-                url = f"https://www.youtube.com/results?search_query={quote_plus(query)}"
-                return Plan(f"กำลังเปิด{query}ในยูทูบให้นะ", [user_chrome_cmd(url)],
+                return Plan(f"กำลังเปิด{query}ในยูทูบให้นะ", func=lambda: play_youtube_in_user_chrome(query),
                             fail_reply="เปิดยูทูบใน Chrome ไม่ได้ครับ")
             if not app_running(player):
                 return Plan("ตอนนี้ยังไม่ได้เปิด Chrome ที่มีเพลงอยู่นะ")
