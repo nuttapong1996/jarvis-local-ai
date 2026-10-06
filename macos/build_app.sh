@@ -5,10 +5,20 @@
 set -euo pipefail
 PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$PROJECT/Jarvis.app"
+ICON_SOURCE="$PROJECT/macos/assets/JarvisIcon.png"
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Jarvis.iconset"
 clang -O2 -Wall -DPROJECT_DIR="\"$PROJECT\"" -o "$APP/Contents/MacOS/Jarvis" "$PROJECT/macos/launcher.c"
+
+# สร้างไอคอน macOS ทุกขนาดจาก master PNG เพื่อให้คมทั้ง Dock, Finder และ Launchpad
+for size in 16 32 128 256 512; do
+  sips -s format png -z "$size" "$size" "$ICON_SOURCE" --out "$APP/Contents/Resources/Jarvis.iconset/icon_${size}x${size}.png" >/dev/null
+  double_size=$((size * 2))
+  sips -s format png -z "$double_size" "$double_size" "$ICON_SOURCE" --out "$APP/Contents/Resources/Jarvis.iconset/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$APP/Contents/Resources/Jarvis.iconset" -o "$APP/Contents/Resources/Jarvis.icns"
+rm -rf "$APP/Contents/Resources/Jarvis.iconset"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -20,10 +30,13 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleDisplayName</key>         <string>น้องจาง</string>
   <key>CFBundleExecutable</key>          <string>Jarvis</string>
   <key>CFBundlePackageType</key>         <string>APPL</string>
+  <key>CFBundleIconFile</key>             <string>Jarvis</string>
   <key>CFBundleShortVersionString</key>  <string>1.0</string>
   <key>CFBundleVersion</key>             <string>1</string>
   <key>LSMinimumSystemVersion</key>      <string>13.0</string>
-  <key>LSUIElement</key>                 <true/>
+  <!-- แสดงใน Dock เพื่อให้เปิด/สลับ/ปิดได้เหมือนแอปทั่วไป
+       (ไอคอนไมค์บนแถบเมนูยังใช้งานได้ตามเดิม) -->
+  <key>LSUIElement</key>                 <false/>
   <key>NSHighResolutionCapable</key>     <true/>
   <key>NSMicrophoneUsageDescription</key>
   <string>น้องจางต้องฟังเสียงเพื่อรับคำสั่งภาษาไทย (ถอดเสียงในเครื่อง ไม่ส่งเสียงออกไปไหน)</string>
