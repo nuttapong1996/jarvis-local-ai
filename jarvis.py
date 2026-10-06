@@ -945,17 +945,39 @@ def youtube_music_query(text: str) -> str:
     return query.strip(" ,.!?") or "เพลงฮิตไทย"
 
 
+def open_url_in_current_chrome(url: str) -> bool:
+    """เพิ่มแท็บในหน้าต่าง Chrome ด้านหน้าสุด เพื่อคงโปรไฟล์ที่ผู้ใช้กำลังใช้ไว้.
+
+    ห้ามใช้ ``--profile-directory`` ตรงนี้ เพราะแม้จะเลือก profile ล่าสุดได้ถูกต้อง
+    ก็อาจไม่ใช่หน้าต่าง/profile ที่ผู้ใช้เปิดค้างอยู่ในขณะสั่งงาน.
+    """
+    escaped_url = url.replace("\\", "\\\\").replace('"', '\\"')
+    script = f'''tell application "Google Chrome"
+    activate
+    if (count of windows) = 0 then make new window
+    tell front window
+        set newTab to make new tab at end of tabs with properties {{URL:"{escaped_url}"}}
+        set active tab index to (index of newTab)
+    end tell
+end tell'''
+    try:
+        opened = subprocess.run(osa(script), capture_output=True, text=True, timeout=15)
+        if opened.returncode == 0:
+            return True
+        print(f"  ⚠️  เปิดแท็บ Chrome ไม่สำเร็จ: {opened.stderr.strip()[:160]}")
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"  ⚠️  เปิดแท็บ Chrome ไม่สำเร็จ: {exc}")
+    return False
+
+
 def play_youtube_in_user_chrome(query: str) -> bool:
-    """เปิดผลค้นหาแล้วคลิกวิดีโอแรก/สั่ง video.play ใน Chrome profile ของผู้ใช้."""
-    from computer_agent import user_chrome_cmd
+    """ค้นหา/เล่น YouTube ในโปรไฟล์ของหน้าต่าง Chrome ที่กำลังใช้งานอยู่."""
     from urllib.parse import quote_plus
     url = f"https://www.youtube.com/results?search_query={quote_plus(query)}"
     try:
-        opened = subprocess.run(user_chrome_cmd(url), capture_output=True, text=True, timeout=15)
-        if opened.returncode:
-            print(f"  ⚠️  เปิด YouTube ไม่สำเร็จ: {opened.stderr.strip()[:160]}")
+        if not open_url_in_current_chrome(url):
             return False
-        # Chrome รองรับ AppleScript execute javascript กับแท็บที่เลือกอยู่: รอผลค้นหาวาดแล้วกดวิดีโอแรก
+        # Chrome รองรับ AppleScript execute javascript กับแท็บที่เพิ่งเพิ่ม: รอผลค้นหาวาดแล้วกดวิดีโอแรก
         click_first = ('tell application "Google Chrome" to tell active tab of front window to '
                        'execute javascript "(() => { const a = document.querySelector(\'a#video-title[href*=\\\"watch\\\"]\'); '
                        'if (!a) return \'waiting\'; a.click(); return \'started\'; })()"')
@@ -1024,8 +1046,7 @@ def make_plan(step: Step, text: str = "") -> Plan:
         if player == "Google Chrome":
             if a == "music_play":
                 # "เปิดเพลง <ชื่อเพลง>" ต้องค้นหาชื่อเพลง ไม่ใช่เปิดหน้า YouTube เปล่า
-                # user_chrome_cmd ใช้ CHROME_PROFILE ที่เลือกไว้ (เช่น NOMAD) หรือ profile ล่าสุด
-                # จึงไม่ปะปนกับ Chrome โปรไฟล์แยกของเอเจนต์เว็บ
+                # เพิ่มแท็บในหน้าต่าง Chrome ที่อยู่ด้านหน้า จึงใช้โปรไฟล์ปัจจุบันของผู้ใช้
                 query = youtube_music_query(text)
                 return Plan(f"กำลังเปิด{query}ในยูทูบให้นะ", func=lambda: play_youtube_in_user_chrome(query),
                             fail_reply="เปิดยูทูบใน Chrome ไม่ได้ครับ")
@@ -1401,6 +1422,14 @@ class Assistant:
                 print(f"  ⚠️  งาน{kind}ได้สรุปว่าง")
                 self.speaker.say(pick("web_fail" if kind == "web" else "fail"))
         else:
+            # เอเจนต์เว็บใช้โปรไฟล์แยกเพื่อให้ Playwright ควบคุมได้อย่างปลอดภัย แต่เมื่อค้นหาเสร็จ
+            # ให้เปิดหน้าผลลัพธ์เดียวกันเป็นแท็บใหม่ในหน้าต่าง Chrome ด้านหน้าสุดของผู้ใช้
+            # จึงได้โปรไฟล์ที่กำลังใช้งานจริง (ล็อกอิน/บุ๊กมาร์ก/ประวัติของผู้ใช้ครบ)
+            if kind == "web" and self._web_agent is not None:
+                result_url = self._web_agent.current_url
+                if result_url.startswith(("https://", "http://")):
+                    if open_url_in_current_chrome(result_url):
+                        print("  🌐 เปิดผลการค้นหาในโปรไฟล์ Chrome ปัจจุบันแล้ว")
             self.speaker.say(speech)
             self.history.append((request or "หาข้อมูลบนเว็บ", speech))
             # งานเสร็จแล้วค่อยล็อก/ปิดเสียง — รอให้เสียงรบกวนที่ทำให้หยุดพูดชั่วคราวผ่านไปก่อน (ถ้าถูกพูดแทรกจริงค่อยยกเลิก)

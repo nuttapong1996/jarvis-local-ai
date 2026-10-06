@@ -227,6 +227,14 @@ class BrowserAgent:
             self.page = self._context.new_page()
         self.page.bring_to_front()
 
+    @property
+    def current_url(self) -> str:
+        """URL สุดท้ายของงาน ใช้ส่งต่อไปยัง Chrome โปรไฟล์ที่ผู้ใช้กำลังใช้งาน."""
+        try:
+            return str(self.page.url) if self.page is not None and not self.page.is_closed() else ""
+        except Exception:
+            return ""
+
     # ── มองหน้าเว็บ ─────────────────────────────────────────────────────────
     def observe(self) -> str:
         page = self.page
