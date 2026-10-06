@@ -251,34 +251,42 @@ def load_user_settings() -> dict:
 
 
 def chrome_profiles() -> list[tuple[str, str]]:
-    """คืน (ชื่อที่คนเห็น, ชื่อโฟลเดอร์) ของทุก Chrome profile ที่หาได้.
+    """คืน (ชื่อที่คนเห็น, ชื่อโฟลเดอร์) ของทุกโปรไฟล์ใน Google Chrome.
 
-    Chrome บางรุ่นไม่มี info_cache หรือเก็บไว้คนละ channel จึงสแกนโฟลเดอร์
-    Default/Profile N เพิ่มด้วย ไม่ปล่อยให้กล่องเลือกว่างเงียบ ๆ.
+    ไม่เดาชื่อโฟลเดอร์ว่าเป็นแค่ ``Default`` หรือ ``Profile N``: ส่วนขยาย,
+    Chrome for Testing และบางเวอร์ชันตั้งชื่อโฟลเดอร์ไม่เหมือนกันได้ จึงถือว่า
+    ทุกโฟลเดอร์ที่มีไฟล์ Preferences เป็นโปรไฟล์ แล้วอ่านชื่อจาก Local State
+    หรือ Preferences ตามลำดับ.
     """
-    roots = (
-        Path.home() / "Library/Application Support/Google/Chrome",
-        Path.home() / "Library/Application Support/Google/Chrome Beta",
-        Path.home() / "Library/Application Support/Chromium",
-    )
-    found: dict[str, str] = {}
-    for root in roots:
+    root = Path.home() / "Library/Application Support/Google/Chrome"
+
+    def read_json(path: Path) -> dict:
         try:
-            state = json.loads((root / "Local State").read_text(encoding="utf-8"))
-            cache = state.get("profile", {}).get("info_cache", {})
-            if isinstance(cache, dict):
-                for folder, info in cache.items():
-                    if isinstance(info, dict):
-                        found[str(folder)] = str(info.get("name") or folder)
+            value = json.loads(path.read_text(encoding="utf-8"))
+            return value if isinstance(value, dict) else {}
         except (OSError, ValueError, TypeError):
-            pass
-        try:
-            for child in root.iterdir():
-                if child.is_dir() and (child.name == "Default" or child.name.startswith("Profile ")):
-                    found.setdefault(child.name, child.name)
-        except OSError:
-            pass
-    return sorted(((name, folder) for folder, name in found.items()), key=lambda item: item[0].casefold())
+            return {}
+
+    state = read_json(root / "Local State")
+    cache = state.get("profile", {}).get("info_cache", {})
+    cache = cache if isinstance(cache, dict) else {}
+    found: list[tuple[str, str]] = []
+    try:
+        folders = sorted((child for child in root.iterdir() if child.is_dir()), key=lambda child: child.name.casefold())
+    except OSError:
+        return []
+    for folder in folders:
+        # System Profile ไม่มีข้อมูลผู้ใช้ และ Guest Profile เปิดผ่าน --profile-directory ไม่ได้เสมอไป
+        if folder.name in {"System Profile", "Guest Profile"} or not (folder / "Preferences").is_file():
+            continue
+        info = cache.get(folder.name, {})
+        info = info if isinstance(info, dict) else {}
+        preferences = read_json(folder / "Preferences")
+        profile_data = preferences.get("profile", {})
+        profile_data = profile_data if isinstance(profile_data, dict) else {}
+        name = str(info.get("name") or profile_data.get("name") or folder.name).strip() or folder.name
+        found.append((name, folder.name))
+    return sorted(found, key=lambda item: (item[0].casefold(), item[1].casefold()))
 
 
 USER_SETTINGS = load_user_settings()
@@ -2450,16 +2458,16 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
 
             content.addSubview_(label("โปรไฟล์ Google Chrome", 24, 562, 220))
             self.settings_chrome = AppKit.NSPopUpButton.alloc().initWithFrame_pullsDown_(
-                AppKit.NSMakeRect(250, 560, 480, 26), False)
-            self.settings_chrome.addItemWithTitle_("ใช้โปรไฟล์ล่าสุดของ Chrome")
-            self.chrome_profile_values = [""]
-            for name, folder in chrome_profiles():
-                self.settings_chrome.addItemWithTitle_(f"{name}  ({folder})")
-                self.chrome_profile_values.append(folder)
-            desired = str(USER_SETTINGS.get("chrome_profile", "")).strip()
-            if desired in self.chrome_profile_values:
-                self.settings_chrome.selectItemAtIndex_(self.chrome_profile_values.index(desired))
+                AppKit.NSMakeRect(250, 560, 385, 26), False)
+            self.reload_chrome_profiles()
             content.addSubview_(self.settings_chrome)
+            refresh_profiles = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(645, 558, 85, 30))
+            refresh_profiles.setTitle_("รีเฟรช")
+            refresh_profiles.setBezelStyle_(AppKit.NSBezelStyleRounded)
+            refresh_profiles.setToolTip_("สแกนรายชื่อโปรไฟล์ Google Chrome ในเครื่องใหม่")
+            refresh_profiles.setTarget_(self)
+            refresh_profiles.setAction_("refreshChromeProfiles:")
+            content.addSubview_(refresh_profiles)
 
             content.addSubview_(label("แอปสำหรับเปิดเพลง", 24, 522, 220))
             self.settings_music = AppKit.NSPopUpButton.alloc().initWithFrame_pullsDown_(
@@ -2505,6 +2513,27 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
             self.settings_window = win
             win.makeKeyAndOrderFront_(None)
             app.activateIgnoringOtherApps_(True)
+
+        def reload_chrome_profiles(self, preferred: str | None = None):
+            """โหลดชื่อโปรไฟล์ใหม่โดยไม่ต้องปิด/เปิดหน้าต่างตั้งค่า."""
+            preferred = preferred if preferred is not None else str(USER_SETTINGS.get("chrome_profile", "")).strip()
+            self.settings_chrome.removeAllItems()
+            self.settings_chrome.addItemWithTitle_("ใช้โปรไฟล์ล่าสุดของ Chrome")
+            self.chrome_profile_values = [""]
+            profiles = chrome_profiles()
+            for name, folder in profiles:
+                self.settings_chrome.addItemWithTitle_(f"{name}  ({folder})")
+                self.chrome_profile_values.append(folder)
+            if preferred in self.chrome_profile_values:
+                self.settings_chrome.selectItemAtIndex_(self.chrome_profile_values.index(preferred))
+            if hasattr(self, "settings_feedback"):
+                self.settings_feedback.setStringValue_(
+                    f"พบโปรไฟล์ Chrome {len(profiles)} โปรไฟล์" if profiles else
+                    "ไม่พบโปรไฟล์ Chrome — โปรดเปิด Google Chrome อย่างน้อยหนึ่งครั้ง แล้วกดรีเฟรช")
+
+        def refreshChromeProfiles_(self, sender):
+            current = self.chrome_profile_values[self.settings_chrome.indexOfSelectedItem()]
+            self.reload_chrome_profiles(current)
 
         def reload_command_editor(self):
             """ฟอร์มแก้ไขคำสั่งแบบแถว ไม่ต้องพิมพ์ JSON."""
