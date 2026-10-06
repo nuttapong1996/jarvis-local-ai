@@ -938,7 +938,14 @@ def music_player() -> str:
     return "Spotify" if app_installed("Spotify") else "Music"
 
 
-def make_plan(step: Step) -> Plan:
+def youtube_music_query(text: str) -> str:
+    """ตัดคำสั่ง/คำสุภาพออก เหลือชื่อเพลงหรือศิลปินสำหรับค้น YouTube."""
+    query = re.sub(r"^\s*(?:ช่วย\s*)?(?:เปิด|เล่น|หา)\s*(?:เพลง)?\s*", "", text, flags=re.I)
+    query = re.sub(r"(?:\s*(?:ให้|ด้วย|หน่อย|ที|ครับ|ค่ะ|คะ|สิ))+\s*[!.?]*\s*$", "", query, flags=re.I)
+    return query.strip(" ,.!?") or "เพลงฮิตไทย"
+
+
+def make_plan(step: Step, text: str = "") -> Plan:
     """แปลงหนึ่งขั้นตอนเป็นคำสั่ง shell + ประโยคตอบ"""
     a, app = step.action, step.app
     name = (APPS | SITES | EXTRA_APPS).get(app, (app,))[0] or app
@@ -986,11 +993,14 @@ def make_plan(step: Step) -> Plan:
         player = music_player()
         if player == "Google Chrome":
             if a == "music_play":
-                # "เปิดเพลง" ต้องเปิดเว็บเพลง ไม่ใช่ส่งปุ่ม play ให้แท็บที่ยังไม่มีเพลง
+                # "เปิดเพลง <ชื่อเพลง>" ต้องค้นหาชื่อเพลง ไม่ใช่เปิดหน้า YouTube เปล่า
                 # user_chrome_cmd ใช้ CHROME_PROFILE ที่เลือกไว้ (เช่น NOMAD) หรือ profile ล่าสุด
                 # จึงไม่ปะปนกับ Chrome โปรไฟล์แยกของเอเจนต์เว็บ
                 from computer_agent import user_chrome_cmd
-                return Plan("เปิดยูทูบใน Chrome ให้แล้วนะ", [user_chrome_cmd("https://www.youtube.com/")],
+                from urllib.parse import quote_plus
+                query = youtube_music_query(text)
+                url = f"https://www.youtube.com/results?search_query={quote_plus(query)}"
+                return Plan(f"กำลังเปิด{query}ในยูทูบให้นะ", [user_chrome_cmd(url)],
                             fail_reply="เปิดยูทูบใน Chrome ไม่ได้ครับ")
             if not app_running(player):
                 return Plan("ตอนนี้ยังไม่ได้เปิด Chrome ที่มีเพลงอยู่นะ")
@@ -1267,7 +1277,7 @@ class Assistant:
             reply = pick("web_cancel")
             self.speaker.say(reply)
             return reply
-        plans = [make_plan(s) for s in steps]
+        plans = [make_plan(s, text) for s in steps]
         replies, web, task = [], None, text
         jobs = {p.job for p in plans if p.job}
         for p in plans:                       # ทำทันที (ยกเว้นพวกที่ต้องพูดก่อน และงานเบื้องหลัง)
