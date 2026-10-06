@@ -2281,7 +2281,12 @@ def shutdown(ears) -> None:
         return
     shutdown.done = True
     print("\n👋 ไว้คุยกันใหม่นะ")
-    for close in (ears.close, ears.speaker.close, LocalLLM.stop):
+    # ถ้าเปิดไม่สำเร็จตั้งแต่ก่อนประกาศ LocalLLM ก็ต้องปิดไมค์/ลำโพงได้โดยไม่ซ้ำเติม error
+    closes = [ears.close, ears.speaker.close]
+    local_llm = globals().get("LocalLLM")
+    if local_llm is not None:
+        closes.append(local_llm.stop)
+    for close in closes:
         try:
             close()
         except Exception:
@@ -2401,7 +2406,7 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
             content.addSubview_(self.settings_commands_scroll)
             loaded = USER_SETTINGS.get("commands", [])
             self.settings_command_data = [dict(item) for item in loaded if isinstance(item, dict)] or default_command_templates()
-            self.reloadCommandEditor_()
+            self.reload_command_editor()
             for title, selector, x, width in (("+ เพิ่มคำสั่ง", "addCommand:", 24, 130), ("คืนค่าชุดเดิม", "resetCommands:", 165, 150)):
                 button = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(x, 82, width, 32))
                 button.setTitle_(title)
@@ -2423,7 +2428,7 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
             win.makeKeyAndOrderFront_(None)
             app.activateIgnoringOtherApps_(True)
 
-        def reloadCommandEditor_(self):
+        def reload_command_editor(self):
             """ฟอร์มแก้ไขคำสั่งแบบแถว ไม่ต้องพิมพ์ JSON."""
             row_height = 54
             total = max(1, len(self.settings_command_data)) * row_height + 6
@@ -2463,19 +2468,19 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
 
         def addCommand_(self, sender):
             self.settings_command_data.append({"phrase": "", "action": "open_app", "app": "none"})
-            self.reloadCommandEditor_()
+            self.reload_command_editor()
 
         def removeCommand_(self, sender):
             index = int(sender.tag())
             if 0 <= index < len(self.settings_command_data):
                 self.settings_command_data.pop(index)
-                self.reloadCommandEditor_()
+                self.reload_command_editor()
 
         def resetCommands_(self, sender):
             self.settings_command_data = default_command_templates()
-            self.reloadCommandEditor_()
+            self.reload_command_editor()
 
-        def commandRows_(self):
+        def command_rows(self):
             commands = []
             for phrase, action, app_choice, volume, actions, apps in self.settings_command_rows:
                 spoken = str(phrase.stringValue()).strip()
@@ -2498,7 +2503,7 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
 
         def saveSettings_(self, sender):
             try:
-                commands = self.commandRows_()
+                commands = self.command_rows()
             except (ValueError, IndexError) as exc:
                 alert = AppKit.NSAlert.alloc().init()
                 alert.setMessageText_("บันทึกคำสั่งไม่ได้")
