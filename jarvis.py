@@ -237,6 +237,9 @@ load_dotenv(ROOT / ".env")
 # ค่าที่ผู้ใช้ปรับจากเมนูคลิกขวาใน Dock แยกจาก .env เพื่อไม่ให้การอัปเดตโค้ด
 # หรือการตั้งค่าเชิงเทคนิคไปทับสิ่งที่ตั้งไว้ในแอป
 SETTINGS_FILE = ROOT / ".jarvis-settings.json"
+# NSMenu เก็บ target แบบ weak reference; เก็บ Python proxy ไว้ตลอดอายุแอป
+# ป้องกัน PyObjC ส่ง action ไปยัง object ที่ถูกเก็บกวาดแล้ว (SIGTRAP บน macOS รุ่นใหม่).
+_APPKIT_KEEPALIVE: list[object] = []
 
 
 def load_user_settings() -> dict:
@@ -245,6 +248,37 @@ def load_user_settings() -> dict:
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
         return {}
+
+
+def chrome_profiles() -> list[tuple[str, str]]:
+    """คืน (ชื่อที่คนเห็น, ชื่อโฟลเดอร์) ของทุก Chrome profile ที่หาได้.
+
+    Chrome บางรุ่นไม่มี info_cache หรือเก็บไว้คนละ channel จึงสแกนโฟลเดอร์
+    Default/Profile N เพิ่มด้วย ไม่ปล่อยให้กล่องเลือกว่างเงียบ ๆ.
+    """
+    roots = (
+        Path.home() / "Library/Application Support/Google/Chrome",
+        Path.home() / "Library/Application Support/Google/Chrome Beta",
+        Path.home() / "Library/Application Support/Chromium",
+    )
+    found: dict[str, str] = {}
+    for root in roots:
+        try:
+            state = json.loads((root / "Local State").read_text(encoding="utf-8"))
+            cache = state.get("profile", {}).get("info_cache", {})
+            if isinstance(cache, dict):
+                for folder, info in cache.items():
+                    if isinstance(info, dict):
+                        found[str(folder)] = str(info.get("name") or folder)
+        except (OSError, ValueError, TypeError):
+            pass
+        try:
+            for child in root.iterdir():
+                if child.is_dir() and (child.name == "Default" or child.name.startswith("Profile ")):
+                    found.setdefault(child.name, child.name)
+        except OSError:
+            pass
+    return sorted(((name, folder) for folder, name in found.items()), key=lambda item: item[0].casefold())
 
 
 USER_SETTINGS = load_user_settings()
@@ -632,6 +666,20 @@ class Decision:
 
 
 APP_CRITERIA = {name: v[1] for name, v in (APPS | SITES | EXTRA_APPS).items()}
+
+
+def default_command_templates() -> list[dict]:
+    """ชุดคำสั่งเดิมที่แสดงในหน้าตั้งค่า เพื่อเริ่มแก้ได้ทันทีโดยไม่ต้องพิมพ์ JSON."""
+    return [
+        {"phrase": "เปิดสปอติฟาย", "action": "open_app", "app": "Spotify"},
+        {"phrase": "เปิดโครม", "action": "open_app", "app": "Google Chrome"},
+        {"phrase": "เล่นเพลง", "action": "music_play", "app": "none"},
+        {"phrase": "หยุดเพลง", "action": "music_pause", "app": "none"},
+        {"phrase": "เพลงถัดไป", "action": "music_next", "app": "none"},
+        {"phrase": "เพิ่มเสียง", "action": "volume_up", "app": "none"},
+        {"phrase": "ลดเสียง", "action": "volume_down", "app": "none"},
+        {"phrase": "ล็อกหน้าจอ", "action": "lock_screen", "app": "none"},
+    ]
 
 
 def _command_key(text: str) -> str:
@@ -2313,60 +2361,59 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
 
             style = AppKit.NSWindowStyleMaskTitled | AppKit.NSWindowStyleMaskClosable
             win = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-                AppKit.NSMakeRect(0, 0, 680, 510), style, AppKit.NSBackingStoreBuffered, False)
+                AppKit.NSMakeRect(0, 0, 760, 650), style, AppKit.NSBackingStoreBuffered, False)
             win.setTitle_(f"การตั้งค่า {ASSISTANT_NAME}")
             win.center()
             content = win.contentView()
-            content.addSubview_(label("ชื่อผู้ใช้ (ให้ Jarvis เรียกคุณ)", 24, 462, 220))
-            self.settings_name = field(str(USER_SETTINGS.get("user_name", USER_NAME)), 250, 460, 400)
+            content.addSubview_(label("ชื่อผู้ใช้ (ให้ Jarvis เรียกคุณ)", 24, 602, 220))
+            self.settings_name = field(str(USER_SETTINGS.get("user_name", USER_NAME)), 250, 600, 480)
             content.addSubview_(self.settings_name)
 
-            content.addSubview_(label("โปรไฟล์ Google Chrome", 24, 422, 220))
+            content.addSubview_(label("โปรไฟล์ Google Chrome", 24, 562, 220))
             self.settings_chrome = AppKit.NSPopUpButton.alloc().initWithFrame_pullsDown_(
-                AppKit.NSMakeRect(250, 420, 400, 26), False)
+                AppKit.NSMakeRect(250, 560, 480, 26), False)
             self.settings_chrome.addItemWithTitle_("ใช้โปรไฟล์ล่าสุดของ Chrome")
-            try:
-                state = json.loads((Path.home() / "Library/Application Support/Google/Chrome/Local State").read_text())
-                profiles = state.get("profile", {}).get("info_cache", {})
-                for folder, info in sorted(profiles.items(), key=lambda pair: str(pair[1].get("name", pair[0])).casefold()):
-                    name = str(info.get("name", folder))
-                    self.settings_chrome.addItemWithTitle_(f"{name}  ({folder})")
-                    self.settings_chrome.lastItem().setRepresentedObject_(folder)
-            except (OSError, ValueError):
-                pass
+            self.chrome_profile_values = [""]
+            for name, folder in chrome_profiles():
+                self.settings_chrome.addItemWithTitle_(f"{name}  ({folder})")
+                self.chrome_profile_values.append(folder)
             desired = str(USER_SETTINGS.get("chrome_profile", "")).strip()
-            for index in range(self.settings_chrome.numberOfItems()):
-                item = self.settings_chrome.itemAtIndex_(index)
-                if str(item.representedObject() or "") == desired:
-                    self.settings_chrome.selectItemAtIndex_(index)
-                    break
+            if desired in self.chrome_profile_values:
+                self.settings_chrome.selectItemAtIndex_(self.chrome_profile_values.index(desired))
             content.addSubview_(self.settings_chrome)
 
-            content.addSubview_(label("แอปสำหรับเปิดเพลง", 24, 382, 220))
+            content.addSubview_(label("แอปสำหรับเปิดเพลง", 24, 522, 220))
             self.settings_music = AppKit.NSPopUpButton.alloc().initWithFrame_pullsDown_(
-                AppKit.NSMakeRect(250, 380, 400, 26), False)
+                AppKit.NSMakeRect(250, 520, 480, 26), False)
             self.settings_music.addItemsWithTitles_(["อัตโนมัติ (แอปที่เปิดอยู่ก่อน)", "Spotify", "Music", "Google Chrome"])
             selected_music = str(USER_SETTINGS.get("music_player", "auto"))
             self.settings_music.selectItemAtIndex_({"auto": 0, "Spotify": 1, "Music": 2, "Google Chrome": 3}.get(selected_music, 0))
             content.addSubview_(self.settings_music)
 
-            content.addSubview_(label("คำสั่งส่วนตัว (JSON)", 24, 342, 220))
-            hint = label('ตัวอย่าง: [{"phrase":"เปิดงาน","action":"open_app","app":"Slack"}]', 250, 342, 410)
+            content.addSubview_(label("คำสั่งที่พูด", 24, 478, 120))
+            hint = label("แก้ไขชุดเดิม เพิ่ม หรือลบได้จากตารางนี้", 148, 478, 480)
             hint.setTextColor_(AppKit.NSColor.secondaryLabelColor())
             hint.setFont_(AppKit.NSFont.systemFontOfSize_(11))
             content.addSubview_(hint)
-            scroll = AppKit.NSScrollView.alloc().initWithFrame_(AppKit.NSMakeRect(24, 105, 632, 225))
-            scroll.setHasVerticalScroller_(True)
-            self.settings_commands = AppKit.NSTextView.alloc().initWithFrame_(scroll.bounds())
-            self.settings_commands.setFont_(AppKit.NSFont.monospacedSystemFontOfSize_weight_(12, 0))
-            self.settings_commands.setString_(json.dumps(USER_SETTINGS.get("commands", []), ensure_ascii=False, indent=2))
-            scroll.setDocumentView_(self.settings_commands)
-            content.addSubview_(scroll)
-            note = label("ใช้ได้เฉพาะ action ที่แอปรองรับ เช่น open_app, music_play, volume_set; บันทึกแล้วปิด-เปิด Jarvis ใหม่", 24, 75, 630)
+            self.settings_commands_scroll = AppKit.NSScrollView.alloc().initWithFrame_(AppKit.NSMakeRect(24, 128, 706, 335))
+            self.settings_commands_scroll.setBorderType_(AppKit.NSBezelBorder)
+            self.settings_commands_scroll.setHasVerticalScroller_(True)
+            content.addSubview_(self.settings_commands_scroll)
+            loaded = USER_SETTINGS.get("commands", [])
+            self.settings_command_data = [dict(item) for item in loaded if isinstance(item, dict)] or default_command_templates()
+            self.reloadCommandEditor_()
+            for title, selector, x, width in (("+ เพิ่มคำสั่ง", "addCommand:", 24, 130), ("คืนค่าชุดเดิม", "resetCommands:", 165, 150)):
+                button = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(x, 82, width, 32))
+                button.setTitle_(title)
+                button.setBezelStyle_(AppKit.NSBezelStyleRounded)
+                button.setTarget_(self)
+                button.setAction_(selector)
+                content.addSubview_(button)
+            note = label("คำสั่งที่เพิ่มจะจับแบบตรงประโยค; คำสั่งอื่นของ Jarvis ยังใช้ได้ตามปกติ", 24, 52, 680)
             note.setTextColor_(AppKit.NSColor.secondaryLabelColor())
             note.setFont_(AppKit.NSFont.systemFontOfSize_(11))
             content.addSubview_(note)
-            save = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(555, 25, 100, 32))
+            save = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(630, 22, 100, 32))
             save.setTitle_("บันทึก")
             save.setBezelStyle_(AppKit.NSBezelStyleRounded)
             save.setTarget_(self)
@@ -2376,21 +2423,89 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
             win.makeKeyAndOrderFront_(None)
             app.activateIgnoringOtherApps_(True)
 
+        def reloadCommandEditor_(self):
+            """ฟอร์มแก้ไขคำสั่งแบบแถว ไม่ต้องพิมพ์ JSON."""
+            row_height = 54
+            total = max(1, len(self.settings_command_data)) * row_height + 6
+            canvas = AppKit.NSView.alloc().initWithFrame_(AppKit.NSMakeRect(0, 0, 680, total))
+            actions = [key for key in ACTIONS if key not in {"none", "web_task", "computer_task", "read_screen", "stop_talking"}]
+            apps = ["none", *sorted(APP_CRITERIA)]
+            self.settings_command_rows = []
+            for index, data in enumerate(self.settings_command_data):
+                y = total - (index + 1) * row_height
+                phrase = AppKit.NSTextField.alloc().initWithFrame_(AppKit.NSMakeRect(10, y + 17, 210, 25))
+                phrase.setPlaceholderString_("พูดว่าอะไร")
+                phrase.setStringValue_(str(data.get("phrase", "")))
+                canvas.addSubview_(phrase)
+                action = AppKit.NSPopUpButton.alloc().initWithFrame_pullsDown_(AppKit.NSMakeRect(228, y + 17, 205, 25), False)
+                action.addItemsWithTitles_(actions)
+                action_name = str(data.get("action", "open_app"))
+                action.selectItemAtIndex_(actions.index(action_name) if action_name in actions else 0)
+                canvas.addSubview_(action)
+                app_choice = AppKit.NSPopUpButton.alloc().initWithFrame_pullsDown_(AppKit.NSMakeRect(441, y + 17, 165, 25), False)
+                app_choice.addItemsWithTitles_(["ไม่ระบุ", *apps[1:]])
+                app_name = str(data.get("app", "none"))
+                app_choice.selectItemAtIndex_(apps.index(app_name) if app_name in apps else 0)
+                canvas.addSubview_(app_choice)
+                volume = AppKit.NSTextField.alloc().initWithFrame_(AppKit.NSMakeRect(441, y - 5, 80, 20))
+                volume.setPlaceholderString_("เสียง %")
+                volume.setStringValue_(str(data.get("volume", "")) if data.get("volume") is not None else "")
+                canvas.addSubview_(volume)
+                remove = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(615, y + 15, 55, 28))
+                remove.setTitle_("ลบ")
+                remove.setBezelStyle_(AppKit.NSBezelStyleRounded)
+                remove.setTag_(index)
+                remove.setTarget_(self)
+                remove.setAction_("removeCommand:")
+                canvas.addSubview_(remove)
+                self.settings_command_rows.append((phrase, action, app_choice, volume, actions, apps))
+            self.settings_commands_scroll.setDocumentView_(canvas)
+
+        def addCommand_(self, sender):
+            self.settings_command_data.append({"phrase": "", "action": "open_app", "app": "none"})
+            self.reloadCommandEditor_()
+
+        def removeCommand_(self, sender):
+            index = int(sender.tag())
+            if 0 <= index < len(self.settings_command_data):
+                self.settings_command_data.pop(index)
+                self.reloadCommandEditor_()
+
+        def resetCommands_(self, sender):
+            self.settings_command_data = default_command_templates()
+            self.reloadCommandEditor_()
+
+        def commandRows_(self):
+            commands = []
+            for phrase, action, app_choice, volume, actions, apps in self.settings_command_rows:
+                spoken = str(phrase.stringValue()).strip()
+                if not spoken:
+                    continue
+                action_name = actions[action.indexOfSelectedItem()]
+                app_name = apps[app_choice.indexOfSelectedItem()]
+                command = {"phrase": spoken, "action": action_name, "app": app_name}
+                raw_volume = str(volume.stringValue()).strip()
+                if raw_volume:
+                    if action_name != "volume_set":
+                        raise ValueError("ระบุระดับเสียงได้เฉพาะคำสั่งตั้งระดับเสียง")
+                    command["volume"] = max(0, min(100, int(raw_volume)))
+                if action_name in APP_ACTIONS and app_name == "none":
+                    raise ValueError(f'คำสั่ง "{spoken}" ต้องเลือกแอปหรือเว็บไซต์')
+                commands.append(command)
+            if len(commands) > 100:
+                raise ValueError("มีคำสั่งได้ไม่เกิน 100 รายการ")
+            return commands
+
         def saveSettings_(self, sender):
             try:
-                commands = json.loads(str(self.settings_commands.string()))
-                if not isinstance(commands, list):
-                    raise ValueError("คำสั่งส่วนตัวต้องเป็นรายการ JSON (เริ่มด้วย [ และจบด้วย ])")
-                if len(commands) > 100 or any(not isinstance(c, dict) for c in commands):
-                    raise ValueError("แต่ละคำสั่งต้องเป็น object และมีได้ไม่เกิน 100 รายการ")
-            except (ValueError, json.JSONDecodeError) as exc:
+                commands = self.commandRows_()
+            except (ValueError, IndexError) as exc:
                 alert = AppKit.NSAlert.alloc().init()
                 alert.setMessageText_("บันทึกคำสั่งไม่ได้")
                 alert.setInformativeText_(str(exc))
                 alert.runModal()
                 return
-            item = self.settings_chrome.selectedItem()
-            profile = str(item.representedObject() or "") if item is not None else ""
+            profile = self.chrome_profile_values[self.settings_chrome.indexOfSelectedItem()]
             music = ["auto", "Spotify", "Music", "Google Chrome"][self.settings_music.indexOfSelectedItem()]
             saved = {"user_name": str(self.settings_name.stringValue()).strip(),
                      "chrome_profile": profile, "music_player": music, "commands": commands}
@@ -2425,6 +2540,10 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
             self.quit_(None)
             return AppKit.NSTerminateNow
 
+        def applicationDockMenu_(self, sender):
+            # ใช้ delegate API ของ AppKit โดยตรง (ไม่พึ่ง setter ที่ต่างกันตาม macOS)
+            return self.dock_menu
+
         def tick_(self, timer):                      # 20 ครั้ง/วิ: ส่งสถานะ + ความดังเสียงให้ HUD
             if self.hud is not None:
                 self.hud.push(current_state())
@@ -2447,6 +2566,7 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
     # ต้องเป็น Regular เพื่อให้ไอคอนอยู่ใน Dock และมี context menu ตอนคลิกขวา
     app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyRegular)
     ctl = Controller.alloc().init()
+    _APPKIT_KEEPALIVE.append(ctl)
     app.setDelegate_(ctl)
     ctl.item = AppKit.NSStatusBar.systemStatusBar().statusItemWithLength_(AppKit.NSVariableStatusItemLength)
     menu = AppKit.NSMenu.alloc().init()
@@ -2473,7 +2593,7 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
     dock_menu.addItem_(AppKit.NSMenuItem.separatorItem())
     dock_toggle = dock_menu.addItemWithTitle_action_keyEquivalent_("เริ่ม/หยุดฟัง", "toggle:", "")
     dock_toggle.setTarget_(ctl)
-    app.setDockMenu_(dock_menu)
+    ctl.dock_menu = dock_menu
 
     ctl.hud = None
     if HUD:

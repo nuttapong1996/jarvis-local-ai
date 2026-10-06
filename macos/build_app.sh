@@ -10,15 +10,24 @@ ICON_SOURCE="$PROJECT/macos/assets/JarvisIcon.png"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Jarvis.iconset"
 clang -O2 -Wall -DPROJECT_DIR="\"$PROJECT\"" -o "$APP/Contents/MacOS/Jarvis" "$PROJECT/macos/launcher.c"
+clang -O2 -Wall -framework AppKit -o "$APP/Contents/Resources/.render_icon" "$PROJECT/macos/render_icon.m"
+clang -O2 -Wall -o "$APP/Contents/Resources/.make_icns" "$PROJECT/macos/make_icns.c"
 
 # สร้างไอคอน macOS ทุกขนาดจาก master PNG เพื่อให้คมทั้ง Dock, Finder และ Launchpad
 for size in 16 32 128 256 512; do
-  sips -s format png -z "$size" "$size" "$ICON_SOURCE" --out "$APP/Contents/Resources/Jarvis.iconset/icon_${size}x${size}.png" >/dev/null
+  "$APP/Contents/Resources/.render_icon" "$ICON_SOURCE" "$size" "$APP/Contents/Resources/Jarvis.iconset/icon_${size}x${size}.png"
   double_size=$((size * 2))
-  sips -s format png -z "$double_size" "$double_size" "$ICON_SOURCE" --out "$APP/Contents/Resources/Jarvis.iconset/icon_${size}x${size}@2x.png" >/dev/null
+  "$APP/Contents/Resources/.render_icon" "$ICON_SOURCE" "$double_size" "$APP/Contents/Resources/Jarvis.iconset/icon_${size}x${size}@2x.png"
 done
-iconutil -c icns "$APP/Contents/Resources/Jarvis.iconset" -o "$APP/Contents/Resources/Jarvis.icns"
+"$APP/Contents/Resources/.make_icns" "$APP/Contents/Resources/Jarvis.icns" \
+  "$APP/Contents/Resources/Jarvis.iconset/icon_16x16.png" \
+  "$APP/Contents/Resources/Jarvis.iconset/icon_32x32.png" \
+  "$APP/Contents/Resources/Jarvis.iconset/icon_128x128.png" \
+  "$APP/Contents/Resources/Jarvis.iconset/icon_256x256.png" \
+  "$APP/Contents/Resources/Jarvis.iconset/icon_512x512.png" \
+  "$APP/Contents/Resources/Jarvis.iconset/icon_512x512@2x.png"
 rm -rf "$APP/Contents/Resources/Jarvis.iconset"
+rm "$APP/Contents/Resources/.render_icon" "$APP/Contents/Resources/.make_icns"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
