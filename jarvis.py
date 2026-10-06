@@ -2418,6 +2418,10 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
             note.setTextColor_(AppKit.NSColor.secondaryLabelColor())
             note.setFont_(AppKit.NSFont.systemFontOfSize_(11))
             content.addSubview_(note)
+            self.settings_feedback = label("", 24, 25, 580)
+            self.settings_feedback.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+            self.settings_feedback.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+            content.addSubview_(self.settings_feedback)
             save = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(630, 22, 100, 32))
             save.setTitle_("บันทึก")
             save.setBezelStyle_(AppKit.NSBezelStyleRounded)
@@ -2505,10 +2509,7 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
             try:
                 commands = self.command_rows()
             except (ValueError, IndexError) as exc:
-                alert = AppKit.NSAlert.alloc().init()
-                alert.setMessageText_("บันทึกคำสั่งไม่ได้")
-                alert.setInformativeText_(str(exc))
-                alert.runModal()
+                self.settings_feedback.setStringValue_(f"บันทึกไม่ได้: {exc}")
                 return
             profile = self.chrome_profile_values[self.settings_chrome.indexOfSelectedItem()]
             music = ["auto", "Spotify", "Music", "Google Chrome"][self.settings_music.indexOfSelectedItem()]
@@ -2517,20 +2518,14 @@ def run_menubar(ears: Ears, assistant: Assistant, listen_loop) -> bool:
             try:
                 SETTINGS_FILE.write_text(json.dumps(saved, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             except OSError as exc:
-                alert = AppKit.NSAlert.alloc().init()
-                alert.setMessageText_("บันทึกการตั้งค่าไม่ได้")
-                alert.setInformativeText_(str(exc))
-                alert.runModal()
+                self.settings_feedback.setStringValue_(f"บันทึกไม่ได้: {exc}")
                 return
             USER_SETTINGS.clear()
             USER_SETTINGS.update(saved)
             os.environ["CHROME_PROFILE"] = profile
-            self.settings_window.close()
-            self.settings_window = None
-            alert = AppKit.NSAlert.alloc().init()
-            alert.setMessageText_("บันทึกแล้ว")
-            alert.setInformativeText_("ให้ปิดแล้วเปิด Jarvis ใหม่หนึ่งครั้งเพื่อใช้ชื่อและคำสั่งที่ตั้งไว้ทั้งหมด")
-            alert.runModal()
+            # อย่าปิดหน้าต่างและเปิด modal ซ้อนกันใน action เดียว: PyObjC/AppKit บน macOS
+            # เวอร์ชันนี้อาจ over-release object ระหว่าง autorelease pool ได้ (SIGSEGV หลังคลิกบันทึก)
+            self.settings_feedback.setStringValue_("บันทึกแล้ว — ปิดแล้วเปิด Jarvis ใหม่หนึ่งครั้งเพื่อใช้ชื่อและคำสั่งทั้งหมด")
 
         def quit_(self, sender):
             # ปุ่มออกของ AppKit จะปิดโปรเซสทันที (ไม่ผ่าน finally) → เก็บกวาดเองก่อน
